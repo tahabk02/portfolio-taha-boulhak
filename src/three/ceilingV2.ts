@@ -64,12 +64,18 @@ export function buildCeilingV2(root: THREE.Group, track: CeilingTracker, floorY:
   setInstance(perimeter, 3, width / 2, top, centerZ, depth, 1, 1, Math.PI / 2);
   perimeter.instanceMatrix.needsUpdate = true; perimeter.frustumCulled = false; group.add(perimeter);
 
-  const glowGeo = track.geo(new THREE.PlaneGeometry(1, 1));
-  glowGeo.rotateX(-Math.PI / 2);
+  const glowGeo = track.geo(new THREE.BufferGeometry());
+  glowGeo.setAttribute('position', new THREE.Float32BufferAttribute([
+    -0.5, 0, -0.5, -0.5, 0, 0.5, 0.5, 0, 0.5, 0.5, 0, -0.5,
+    -0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0,
+  ], 3));
+  glowGeo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 1], 2));
+  glowGeo.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
+  glowGeo.computeVertexNormals();
   const coveGlow = new THREE.InstancedMesh(glowGeo, glowMat, 4);
   coveGlow.name = 'ceiling-cove-soft-wash';
   const glowPlane = (i: number, x: number, z: number, sx: number, sz: number, rot = 0) => {
-    setInstance(coveGlow, i, x, top - 0.018, z, sx, sz, 1, rot);
+    setInstance(coveGlow, i, x, top - 0.018, z, sx, 0.52, sz, rot);
     coveGlow.setColorAt(i, new THREE.Color(0x3fd08f));
   };
   glowPlane(0, CEILING.featureCenterX, centerZ - depth / 2 + CEILING.cove.washWidth / 2, width, CEILING.cove.washWidth);
