@@ -16,7 +16,7 @@ import { PERF, FEATURE_FLAGS } from '../config/perf';
 import { COPY, type Language } from '../config/copy';
 import { CAMERA_LIMITS, COLLISION, ROOM_COLLIDERS } from '../config/colliders';
 import { PROJECT_GALLERY } from '../config/projectGallery';
-import { CEILING } from '../config/ceiling';
+import { CEILING, ENABLE_CEILING_V2 } from '../config/ceiling';
 import { getCeilingLightingState, setCeilingPreset, toggleCeilingLighting } from '../lib/ceilingLighting';
 import { resolvePlanarMove, pushOutOfColliders } from '../lib/collision';
 import { InteractionMachine, type InteractionState, type SeatZone } from '../lib/interactionState';
@@ -1291,7 +1291,7 @@ export function StudioScene({
       else return;
       event.preventDefault(); event.stopImmediatePropagation(); requestRender();
     };
-    window.addEventListener('keydown', handleCeilingKeys, true);
+    if (ENABLE_CEILING_V2) window.addEventListener('keydown', handleCeilingKeys, true);
 
     // Pre-allocate scratch math objects for animation loop & 3D screen quad projection
     const raycaster = new THREE.Raycaster();
@@ -2191,7 +2191,7 @@ export function StudioScene({
           </div>
         )}
       </div>
-      {active && <CeilingLightHud lang={lang} onChange={() => apiRef.current?.requestRender()} />}
+      {active && ENABLE_CEILING_V2 && <CeilingLightHud lang={lang} onChange={() => apiRef.current?.requestRender()} />}
       {active && <div className={`room-game-ui ${walking ? 'is-walking' : ''}`}>
         <button
           type="button"
