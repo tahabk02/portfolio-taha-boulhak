@@ -8,12 +8,15 @@ import {
 } from './screenPainter';
 import { SCALE, WORLD_SCALE } from '../config/scale';
 import { TARGET_WALL } from '../config/layout';
+import { NEON_DODGE } from '../config/game';
 
 interface Tracker {
   geo: <T extends THREE.BufferGeometry>(g: T) => T;
   mat: <T extends THREE.Material>(m: T) => T;
   tex: <T extends THREE.Texture>(t: T) => T;
 }
+
+let neonDodgeBestScore = 0;
 
 function createRoundedShape(width: number, height: number, radius: number): THREE.Shape {
   const shape = new THREE.Shape();
@@ -1333,13 +1336,9 @@ export function buildGamingCorner(
   const arcadeMaterial = track.mat(new THREE.MeshBasicMaterial({ map: arcadeTexture, toneMapped: false }));
   tvScreen.material = arcadeMaterial;
   const arcade = {
-    active: false,
-    gameOver: false,
-    elapsed: 0,
-    playerX: 0.5,
-    playerY: 0.8,
-    shield: 0,
-    hazards: Array.from({ length: 8 }, (_, i) => ({ x: ((i * 37 + 13) % 91) / 100 + 0.04, y: -i * 83 - 30, speed: 150 + (i % 4) * 32, size: 12 + (i % 3) * 4 })),
+    active: false, gameOver: false, elapsed: 0, countdown: 0, accumulator: 0,
+    playerX: 0.5, playerY: 0.8, shield: 0, recycleCount: 0,
+    hazards: Array.from({ length: NEON_DODGE.initialHazardCount }, (_, i) => ({ x: ((i * 37 + 13) % 91) / 100 + 0.04, y: -i * 83 - NEON_DODGE.hazardTopPaddingPx, speed: 150 + (i % 4) * 32, size: 12 + (i % 3) * 4 })),
   };
   const drawArcadeScreen = () => {
     if (!arcadeCtx) return;
@@ -1368,7 +1367,7 @@ export function buildGamingCorner(
     } else {
       ctx.fillStyle = 'rgba(4, 10, 20, .72)'; ctx.fillRect(28, 24, 904, 48);
       ctx.textAlign = 'left'; ctx.fillStyle = '#f0f7ff'; ctx.font = '800 21px Arial, sans-serif'; ctx.fillText('NEON DODGE', 48, 55);
-      ctx.textAlign = 'right'; ctx.fillStyle = '#65ffe2'; ctx.fillText(`SCORE  ${Math.floor(arcade.elapsed * 10)}`, 910, 55);
+      ctx.textAlign = 'right'; ctx.fillStyle = '#65ffe2'; ctx.fillText(`SCORE ${Math.floor(arcade.elapsed * 10)} · BEST ${neonDodgeBestScore}`, 910, 55);
       ctx.textAlign = 'center';
       for (const hazard of arcade.hazards) {
         const x = hazard.x * 960, y = hazard.y;
@@ -1383,38 +1382,65 @@ export function buildGamingCorner(
       ctx.beginPath(); ctx.moveTo(0, -27); ctx.lineTo(22, 22); ctx.lineTo(0, 14); ctx.lineTo(-22, 22); ctx.closePath(); ctx.fill();
       ctx.shadowBlur = 0; ctx.fillStyle = '#f5fbff'; ctx.beginPath(); ctx.arc(0, 1, 6, 0, Math.PI * 2); ctx.fill(); ctx.restore();
       if (arcade.shield > 0) { ctx.strokeStyle = 'rgba(255, 218, 105, .82)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(px, py, 36, 0, Math.PI * 2); ctx.stroke(); }
+      if (arcade.countdown > 0) {
+        ctx.fillStyle = 'rgba(4,10,20,.68)'; ctx.fillRect(0, 0, 960, 540);
+        ctx.textAlign = 'center'; ctx.fillStyle = '#f4f8ff'; ctx.font = '900 88px Arial, sans-serif';
+        ctx.fillText(String(Math.ceil(arcade.countdown)), 480, 290);
+      }
     }
     arcadeTexture.needsUpdate = true;
   };
   const setConsolePlaying = (active: boolean) => {
-    arcade.active = active; arcade.gameOver = false; arcade.elapsed = 0; arcade.playerX = 0.5; arcade.playerY = 0.8; arcade.shield = 0;
-    arcade.hazards.forEach((hazard, i) => { hazard.x = ((i * 37 + 13) % 91) / 100 + 0.04; hazard.y = -i * 83 - 30; });
+    arcade.active = active; arcade.gameOver = false; arcade.elapsed = 0;
+    arcade.countdown = active ? NEON_DODGE.startCountdownSeconds : 0;
+    arcade.accumulator = 0; arcade.recycleCount = 0;
+    arcade.playerX = 0.5; arcade.playerY = 0.8; arcade.shield = 0;
+    arcade.hazards.forEach((hazard, i) => { hazard.x = ((i * 37 + 13) % 91) / 100 + 0.04; hazard.y = -i * 83 - NEON_DODGE.hazardTopPaddingPx; });
     drawArcadeScreen();
   };
   const moveConsolePlayer = (dx: number, dy: number) => {
-    if (!arcade.active) return;
-    arcade.playerX = THREE.MathUtils.clamp(arcade.playerX + dx * 0.065, 0.055, 0.945);
-    arcade.playerY = THREE.MathUtils.clamp(arcade.playerY + dy * 0.055, 0.12, 0.9);
+    if (!arcade.active || arcade.countdown > 0) return;
+    arcade.playerX = THREE.MathUtils.clamp(arcade.playerX + dx * NEON_DODGE.playerMoveFraction, 0.055, 0.945);
+    arcade.playerY = THREE.MathUtils.clamp(arcade.playerY + dy * NEON_DODGE.playerMoveFraction, 0.12, 0.9);
     drawArcadeScreen();
   };
-  const activateConsoleShield = () => { if (arcade.active) { arcade.shield = 1.1; drawArcadeScreen(); } };
+  const activateConsoleShield = () => { if (arcade.active && arcade.countdown <= 0) { arcade.shield = NEON_DODGE.dashSeconds; drawArcadeScreen(); } };
   const updateConsoleGame = (dt: number) => {
-    if (!arcade.active) return;
-    arcade.elapsed += dt; arcade.shield = Math.max(0, arcade.shield - dt);
-    const px = arcade.playerX * 960, py = arcade.playerY * 540;
-    for (const hazard of arcade.hazards) {
-      hazard.y += hazard.speed * dt;
-      if (hazard.y > 570) { hazard.y = -24 - Math.random() * 180; hazard.x = 0.05 + Math.random() * 0.9; }
-      if (arcade.shield <= 0 && Math.hypot(hazard.x * 960 - px, hazard.y - py) < hazard.size + 18) {
-        arcade.active = false; arcade.gameOver = true;
+    if (!arcade.active) return false;
+    arcade.accumulator = Math.min(arcade.accumulator + Math.min(dt, NEON_DODGE.maxFrameDeltaSeconds), NEON_DODGE.fixedStepSeconds * NEON_DODGE.maxCatchUpSteps);
+    let steps = 0;
+    while (arcade.accumulator >= NEON_DODGE.fixedStepSeconds && steps < NEON_DODGE.maxCatchUpSteps && arcade.active) {
+      const step = NEON_DODGE.fixedStepSeconds;
+      arcade.accumulator -= step; steps += 1;
+      if (arcade.countdown > 0) { arcade.countdown = Math.max(0, arcade.countdown - step); continue; }
+      arcade.elapsed += step;
+      arcade.shield = Math.max(0, arcade.shield - step);
+      const px = arcade.playerX * 960, py = arcade.playerY * 540;
+      for (const hazard of arcade.hazards) {
+        hazard.y += hazard.speed * step;
+        if (hazard.y > 570) {
+          const spawn = arcade.recycleCount++;
+          hazard.y = -NEON_DODGE.hazardTopPaddingPx - ((spawn * 67 + 29) % NEON_DODGE.hazardRecycleRangePx);
+          hazard.x = 0.05 + ((spawn * 43 + 17) % 90) / 100;
+        }
+        if (arcade.shield <= 0 && Math.hypot(hazard.x * 960 - px, hazard.y - py) < hazard.size + NEON_DODGE.playerCollisionRadiusPx) {
+          arcade.active = false; arcade.gameOver = true;
+          neonDodgeBestScore = Math.max(neonDodgeBestScore, Math.floor(arcade.elapsed * 10));
+          break;
+        }
       }
     }
     drawArcadeScreen();
+    return arcade.gameOver;
   };
+  const getConsoleScore = () => Math.floor(arcade.elapsed * 10);
+  const getConsoleBestScore = () => neonDodgeBestScore;
   tvScreen.userData.setConsolePlaying = setConsolePlaying;
   tvScreen.userData.moveConsolePlayer = moveConsolePlayer;
   tvScreen.userData.activateConsoleShield = activateConsoleShield;
   tvScreen.userData.updateConsoleGame = updateConsoleGame;
+  tvScreen.userData.getConsoleScore = getConsoleScore;
+  tvScreen.userData.getConsoleBestScore = getConsoleBestScore;
   drawArcadeScreen();
   root.add(tvScreen);
   const tvGlow = new THREE.PointLight(0x7fc5ff, 0.8, 4.2, 1.8);

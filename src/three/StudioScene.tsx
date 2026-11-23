@@ -374,6 +374,9 @@ export function StudioScene({
   const [sitting, setSitting] = useState(false);
   const [tvOn, setTvOn] = useState(true);
   const [consolePlaying, setConsolePlayingState] = useState(false);
+  const [consoleGameOver, setConsoleGameOver] = useState(false);
+  const [consoleScore, setConsoleScore] = useState(0);
+  const [consoleBestScore, setConsoleBestScore] = useState(0);
   const [deskMode, setDeskMode] = useState<'talk' | 'write' | 'code' | null>(null);
   const [deskDraft, setDeskDraft] = useState('');
   const [deskMessage, setDeskMessage] = useState('');
@@ -422,6 +425,7 @@ export function StudioScene({
     interact: () => void;
     playConsole: () => void;
     consoleAction: () => void;
+    restartConsoleGame: () => void;
     setDeskCode: (code: string | null) => void;
     animateSpeech: (duration: number) => void;
   } | null>(null);
@@ -638,9 +642,14 @@ export function StudioScene({
     let activeVideo: HTMLVideoElement | null = null;
     let activeVideoTex: THREE.VideoTexture | null = null;
     const handlePageVisibility = () => {
-      if (!activeVideo) return;
-      if (document.hidden) activeVideo.pause();
-      else activeVideo.play().catch(() => {});
+      if (activeVideo) {
+        if (document.hidden) activeVideo.pause();
+        else activeVideo.play().catch(() => {});
+      }
+      if (!document.hidden) {
+        lastTime = performance.now();
+        if (activeRef.current) requestRender();
+      }
     };
     document.addEventListener('visibilitychange', handlePageVisibility);
 
@@ -768,6 +777,7 @@ export function StudioScene({
     let isResting = false;
     let isSitting = false;
     let isConsolePlaying = false;
+    let consoleGameOverActive = false;
     let sittingOn: 'desk' | 'gaming' | 'sofa' | 'podcast' = 'desk';
     let podcastSeatX = -7.27;
     let verticalVelocity = 0;
@@ -833,7 +843,10 @@ export function StudioScene({
     const animateSpeech = (duration: number) => { deskSpeechUntil = performance.now() + duration; requestRender(); };
     const setConsoleGame = (enabled: boolean) => {
       isConsolePlaying = enabled;
+      consoleGameOverActive = false;
       setConsolePlayingState(enabled);
+      setConsoleGameOver(false);
+      if (enabled) { setConsoleScore(0); }
       tvEnabled = true;
       setTvOn(true);
       const screen = tvScreenMesh;
@@ -859,6 +872,16 @@ export function StudioScene({
       requestRender();
     };
     const consoleAction = () => {
+      if (consoleGameOverActive) {
+        const screen = tvScreenMesh;
+        const restart = screen?.userData.setConsolePlaying as ((active: boolean) => void) | undefined;
+        restart?.(true);
+        consoleGameOverActive = false;
+        setConsoleGameOver(false);
+        setConsoleScore(0);
+        requestRender();
+        return;
+      }
       const screen = tvScreenMesh;
       const action = screen?.userData.activateConsoleShield as (() => void) | undefined;
       action?.();
@@ -1075,6 +1098,18 @@ export function StudioScene({
       if (!walkingRef.current) return;
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      if (isConsolePlaying) {
+        const key = event.key.toLowerCase();
+        const gameKey = ['a', 'd', 'arrowleft', 'arrowright', 'e', 'enter'].includes(key) || event.code === 'Space';
+        if (!gameKey && !GAME_KEYS.has(key)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (key === 'e') interact();
+        else if (consoleGameOverActive && (event.code === 'Space' || key === 'enter')) consoleAction();
+        else if (event.code === 'Space') consoleAction();
+        else if (!consoleGameOverActive && ['a', 'd', 'arrowleft', 'arrowright'].includes(key) && !event.repeat) moveConsolePlayer(key);
+        return;
+      }
       if (event.key.toLowerCase() === 'e') {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -1421,10 +1456,17 @@ export function StudioScene({
         needsMoreFrames = true;
       }
 
-      if (isConsolePlaying) {
+        if (isConsolePlaying) {
         const tvScreen = tvScreenMesh;
-        const updateGame = tvScreen?.userData.updateConsoleGame as ((delta: number) => void) | undefined;
-        updateGame?.(dt);
+        const updateGame = tvScreen?.userData.updateConsoleGame as ((delta: number) => boolean) | undefined;
+        if (updateGame?.(dt)) {
+          consoleGameOverActive = true;
+          const getScore = tvScreen?.userData.getConsoleScore as (() => number) | undefined;
+          const getBest = tvScreen?.userData.getConsoleBestScore as (() => number) | undefined;
+          setConsoleScore(getScore?.() ?? 0);
+          setConsoleBestScore(getBest?.() ?? 0);
+          setConsoleGameOver(true);
+        }
         needsMoreFrames = true;
       }
 
@@ -1785,6 +1827,7 @@ export function StudioScene({
         else setGameToast('Assieds-toi sur le canapé pour jouer à la console.');
       },
       consoleAction,
+      restartConsoleGame: () => { setConsoleGame(true); },
       setDeskCode: updateDeskCode,
       animateSpeech,
     };
@@ -1972,7 +2015,21 @@ export function StudioScene({
           </section>}
           {sitting && gamePrompt === 'sofa' && !consolePlaying && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.playConsole()}>Jouer à la console</button>}
           {sitting && !consolePlaying && gamePrompt !== 'sofa' && !((gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && deskMode) && <button type="button" className="room-game-secondary" onClick={() => { apiRef.current?.setWalking(false); onGameInteractRef.current?.(); }}>Voir le portfolio</button>}
-          {consolePlaying && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.consoleAction()}>{copy.shield}</button>}
+          {consolePlaying && <>
+            {consoleGameOver && <section className="room-console-game-over" role="status">
+              <strong>NEON DODGE · GAME OVER</strong>
+              <span>Score {consoleScore} · Best {consoleBestScore}</span>
+              <span>Space / Enter to restart · E to exit</span>
+              <button type="button" onClick={() => apiRef.current?.restartConsoleGame()}>Restart</button>
+              <button type="button" onClick={() => apiRef.current?.interact()}>Exit game</button>
+            </section>}
+            {!consoleGameOver && <div className="room-game-console-controls" aria-label="NEON DODGE touch controls">
+              <button type="button" aria-label="Move left" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.moveKey('a', true); }}>←</button>
+              <button type="button" aria-label="Move right" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.moveKey('d', true); }}>→</button>
+              <button type="button" aria-label={copy.shield} onClick={() => apiRef.current?.consoleAction()}>Dash</button>
+              <button type="button" aria-label="Exit game" onClick={() => apiRef.current?.interact()}>Exit</button>
+            </div>}
+          </>}
           {gameToast && <div className="room-game-toast" role="status">{gameToast}</div>}
           <div className="room-game-pad" aria-label="Commandes de déplacement">
             {[
