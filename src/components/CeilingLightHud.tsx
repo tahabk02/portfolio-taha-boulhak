@@ -25,27 +25,27 @@ export function CeilingLightHud({ lang, onChange }: { lang: Language; onChange: 
   const copy = COPY[lang];
   const update = (action: () => void) => { action(); onChange(); };
 
-  return <div className={`ceiling-hud ${open ? 'is-open' : ''}`} onPointerDown={(event) => event.stopPropagation()}>
-    <button type="button" className="ceiling-hud-trigger" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+  return <div className={`ceiling-hud ${open ? 'is-open' : ''}`} data-ui="lights-hud" onPointerDown={(event) => event.stopPropagation()}>
+    <button type="button" className="ceiling-hud-trigger" data-ui="lights-toggle" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
       <span aria-hidden="true">✦</span> {copy.lights}
       <span className={`ceiling-hud-status ${state.enabled ? 'is-on' : ''}`}>{state.enabled ? copy.lightsOn : copy.lightsOff}</span>
     </button>
-    {open && <section className="ceiling-hud-panel" aria-label={copy.lights}>
-      <header><strong>{copy.lights}</strong><button type="button" aria-label={copy.dismiss} onClick={() => setOpen(false)}>×</button></header>
-      <button type="button" className="ceiling-master-toggle" aria-pressed={state.enabled} onClick={() => update(toggleCeilingLighting)}>
+    {open && <section className="ceiling-hud-panel" aria-label={copy.lights} data-ui="lights-panel">
+      <header><strong>{copy.lights}</strong><button type="button" data-ui="lights-close" aria-label={copy.dismiss} onClick={() => setOpen(false)}>×</button></header>
+      <button type="button" className="ceiling-master-toggle" data-ui="lights-master" aria-pressed={state.enabled} onClick={() => update(toggleCeilingLighting)}>
         <span>{state.enabled ? copy.lightsOn : copy.lightsOff}</span><span className="ceiling-toggle-track"><i /></span>
       </button>
       <label className="ceiling-range-label" htmlFor="ceiling-brightness"><span>{copy.lightBrightness}</span><output>{Math.round(state.brightness * 100)}%</output></label>
-      <input id="ceiling-brightness" className="ceiling-range" type="range" min="0" max="1" step="0.01" value={state.brightness} onChange={(event) => update(() => setCeilingBrightness(Number(event.target.value)))} />
+      <input id="ceiling-brightness" className="ceiling-range" data-ui="lights-brightness" type="range" min="0" max="1" step="0.01" value={state.brightness} onChange={(event) => update(() => setCeilingBrightness(Number(event.target.value)))} />
       <p className="ceiling-section-label">{copy.lightPresets}</p>
       <div className="ceiling-preset-grid">{presets.map(([preset, label]) => {
         const active = preset === 'off' ? !state.enabled : state.enabled && state.preset === preset;
-        return <button key={preset} type="button" className={active ? 'is-active' : ''} aria-pressed={active} onClick={() => update(() => setCeilingPreset(preset))}>{copy[label]}</button>;
+        return <button key={preset} type="button" data-ui={`lights-preset-${preset}`} className={active ? 'is-active' : ''} aria-pressed={active} onClick={() => update(() => setCeilingPreset(preset))}>{copy[label]}</button>;
       })}</div>
       <p className="ceiling-section-label">{copy.lightZones}</p>
-      <div className="ceiling-zone-grid">{zones.map(([zone, label]) => <button key={zone} type="button" aria-pressed={state.zones[zone]} className={state.zones[zone] ? 'is-active' : ''} onClick={() => update(() => setCeilingZone(zone, !state.zones[zone]))}><span>{state.zones[zone] ? '●' : '○'}</span>{copy[label]}</button>)}</div>
+      <div className="ceiling-zone-grid">{zones.map(([zone, label]) => <button key={zone} type="button" data-ui={`lights-zone-${zone}`} aria-pressed={state.zones[zone]} className={state.zones[zone] ? 'is-active' : ''} onClick={() => update(() => setCeilingZone(zone, !state.zones[zone]))}><span>{state.zones[zone] ? '●' : '○'}</span>{copy[label]}</button>)}</div>
       <label className="ceiling-section-label" htmlFor="ceiling-theme">{copy.lightTheme}</label>
-      <select id="ceiling-theme" value={state.colorTheme} onChange={(event) => update(() => setCeilingColorTheme(event.target.value as CeilingColorTheme))}>{themes.map(([theme, label]) => <option value={theme} key={theme}>{copy[label]}</option>)}</select>
+      <select id="ceiling-theme" data-ui="lights-theme" value={state.colorTheme} onChange={(event) => update(() => setCeilingColorTheme(event.target.value as CeilingColorTheme))}>{themes.map(([theme, label]) => <option value={theme} key={theme}>{copy[label]}</option>)}</select>
       <small>{copy.lightHotkey}</small>
     </section>}
   </div>;

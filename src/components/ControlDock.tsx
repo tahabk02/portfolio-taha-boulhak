@@ -6,8 +6,10 @@ import {
   type ChassisFinish,
 } from '../data/portfolio';
 import { UIButton } from './UIButton';
+import { COPY, type Language } from '../config/copy';
 
 interface ControlDockProps {
+  lang: Language;
   visible: boolean;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -17,9 +19,12 @@ interface ControlDockProps {
   onSelectFinish: (finish: ChassisFinish) => void;
   activeYoutubeId: string | null;
   onSelectYoutube: (videoId: string | null) => void;
+  onPreviousProject: () => void;
+  onNextProject: () => void;
 }
 
 export function ControlDock({
+  lang,
   visible,
   collapsed,
   onToggleCollapse,
@@ -29,12 +34,15 @@ export function ControlDock({
   onSelectFinish,
   activeYoutubeId,
   onSelectYoutube,
+  onPreviousProject,
+  onNextProject,
 }: ControlDockProps) {
+  const copy = COPY[lang];
   if (!visible) return null;
 
   if (collapsed) {
     return (
-      <div className="studio-dock-collapsed" data-testid="control-dock">
+      <div className="studio-dock-collapsed" data-testid="control-dock" data-ui="bottom-dock">
         <UIButton
           variant="ghost"
           name="dock-toggle"
@@ -42,9 +50,9 @@ export function ControlDock({
           className="dock-toggle-btn"
           onClick={onToggleCollapse}
           aria-expanded="false"
-          title="Expand 3D Studio Controls (H)"
+          title={`${copy.showControls} (H)`}
         >
-          <span>3D Studio</span>
+          <span>{copy.showControls}</span>
           <kbd>H</kbd>
         </UIButton>
       </div>
@@ -56,9 +64,11 @@ export function ControlDock({
       className="studio-dock"
       data-testid="control-dock"
       aria-label="3D Studio Camera, Finish, and YouTube 3D Video Controls"
+      data-ui="bottom-dock"
     >
-      <div className="dock-group" role="group" aria-label="Camera Presets">
-        <span className="dock-label">Angle</span>
+      <UIButton variant="icon" name="dock-previous-project" className="dock-btn dock-project-nav" aria-label={copy.previousProject} onClick={onPreviousProject}>←</UIButton>
+      <div className="dock-group" role="group" aria-label={copy.dockAngle}>
+        <span className="dock-label">{copy.dockAngle}</span>
         <div className="dock-buttons">
           {CAMERA_PRESETS.map((p) => {
             const selected = p.id === activePreset.id;
@@ -71,8 +81,9 @@ export function ControlDock({
                 className={`dock-btn ${selected ? 'is-active' : ''}`}
                 onClick={() => onSelectPreset(p)}
                 aria-pressed={selected}
+                aria-label={p.label}
               >
-                {p.label}
+                <span className="dock-preset-icon" aria-hidden="true">{{ front: '◉', studio: '◇', top: '↓', detail: '⌁', wall: '▤' }[p.id]}</span><span className="dock-button-label">{p.label}</span>
               </UIButton>
             );
           })}
@@ -81,8 +92,8 @@ export function ControlDock({
 
       <span className="dock-divider" aria-hidden="true" />
 
-      <div className="dock-group" role="group" aria-label="Chassis Finish">
-        <span className="dock-label">Chassis</span>
+      <div className="dock-group" role="group" aria-label={copy.dockChassis}>
+        <span className="dock-label">{copy.dockChassis}</span>
         <div className="dock-swatches">
           {FINISHES.map((f) => {
             const selected = f.id === activeFinish.id;
@@ -96,6 +107,7 @@ export function ControlDock({
                 onClick={() => onSelectFinish(f)}
                 aria-pressed={selected}
                 title={`${f.label} metallic finish`}
+                aria-label={`${f.label} metallic finish`}
               >
                 <span
                   className="dock-swatch"
@@ -111,8 +123,8 @@ export function ControlDock({
 
       <span className="dock-divider" aria-hidden="true" />
 
-      <div className="dock-group" role="group" aria-label="3D Screen YouTube Videos">
-        <span className="dock-label">YouTube 3D</span>
+      <div className="dock-group" role="group" aria-label={copy.dockVideos}>
+        <span className="dock-label">{copy.dockVideos}</span>
         <div className="dock-buttons">
           {YOUTUBE_VIDEOS.map((vid) => {
             const selected = activeYoutubeId === vid.id;
@@ -125,6 +137,7 @@ export function ControlDock({
                 className={`dock-btn dock-yt-btn ${selected ? 'is-active' : ''}`}
                 onClick={() => onSelectYoutube(selected ? null : vid.id)}
                 aria-pressed={selected}
+                aria-label={vid.title}
                 title={`Play "${vid.title}" on the 3D laptop screen`}
               >
                 <span>▶ {vid.shortLabel}</span>
@@ -141,10 +154,11 @@ export function ControlDock({
         className="dock-collapse-btn"
         onClick={onToggleCollapse}
         aria-expanded="true"
-        title="Hide 3D Controls (H)"
+        title={`${copy.hideControls} 3D controls (H)`}
       >
-        Hide <kbd>H</kbd>
+        {copy.hideControls} <kbd>H</kbd>
       </UIButton>
+      <UIButton variant="icon" name="dock-next-project" className="dock-btn dock-project-nav dock-project-next" aria-label={copy.nextProject} onClick={onNextProject}>→</UIButton>
     </aside>
   );
 }

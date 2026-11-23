@@ -2304,10 +2304,11 @@ export function StudioScene({
         )}
       </div>
       {active && ENABLE_CEILING_V2 && <CeilingLightHud lang={lang} onChange={() => apiRef.current?.requestRender()} />}
-      {active && <div className={`room-game-ui ${walking ? 'is-walking' : ''}`}>
+      {active && <div className={`room-game-ui ${walking ? 'is-walking' : ''}`} data-ui="room-hud">
         <button
           type="button"
           className="room-game-toggle"
+          data-ui="room-toggle"
           onClick={() => apiRef.current?.setWalking(!walking)}
           aria-pressed={walking}
         >
@@ -2315,9 +2316,9 @@ export function StudioScene({
           {walking ? copy.leaveRoom : copy.exploreRoom}
         </button>
         {walking && !roomProjectsView && !usingPC && <>
-          {!resting && <div className="room-game-hint"><strong>{consolePlaying ? 'NEON DODGE' : copy.exploreRoom}</strong><span>{consolePlaying ? copy.gameControls : copy.controls}</span></div>}
+          {!resting && <div className="room-game-hint" data-ui="room-instructions"><strong>{consolePlaying ? 'NEON DODGE' : copy.exploreRoom}</strong><span>{consolePlaying ? copy.gameControls : copy.controls}</span></div>}
           {FEATURE_FLAGS.ENABLE_DEBUG_STATE_OVERLAY && <output className="room-state-debug" aria-live="polite">{interactionState}</output>}
-          {gamePrompt && !resting && <button type="button" className="room-game-action" onClick={() => apiRef.current?.interact()}>
+          {gamePrompt && !resting && <button type="button" className="room-game-action" data-ui="room-action" onClick={() => apiRef.current?.interact()}>
             <kbd>E</kbd>{gamePrompt === 'desk'
             ? sitting ? copy.stand : copy.sitDesk
               : gamePrompt === 'gaming'
@@ -2336,7 +2337,7 @@ export function StudioScene({
                   ? tvOn ? copy.turnOff : copy.turnOn
                   : resting ? copy.wake : copy.lieDown}
           </button>}
-          {sitting && (gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && <section className="room-desk-workspace" aria-label="Espace de travail du personnage">
+          {sitting && (gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && <section className="room-desk-workspace" aria-label="Espace de travail du personnage" data-ui="desk-panel">
             <div className="room-desk-workspace-head"><span className="room-desk-live-dot" />STUDIO PERSONNEL <small>SESSION ACTIVE</small></div>
             {gamePrompt === 'podcast' && <div className="room-desk-panel-content">
               <p className="room-desk-intro">{lang === 'fr' ? 'Le personnage te pr\u00e9sente son parcours dans la langue choisie.' : 'The character will introduce himself in your selected language.'}</p>
@@ -2370,16 +2371,16 @@ export function StudioScene({
             </div>}
           </section>}
           {sitting && gamePrompt === 'sofa' && !consolePlaying && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.playConsole()}>{copy.playConsole}</button>}
-          {sitting && !consolePlaying && gamePrompt !== 'sofa' && !((gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && deskMode) && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.viewProjects()}>{copy.viewProjects}</button>}
+          {sitting && !consolePlaying && gamePrompt !== 'sofa' && !((gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && deskMode) && <button type="button" className="room-game-secondary" data-ui="room-view-projects" onClick={() => apiRef.current?.viewProjects()}>{copy.viewProjects}</button>}
           {consolePlaying && <>
             {consoleGameOver && <section className="room-console-game-over" role="status">
               <strong>{copy.gameOverTitle}</strong>
               <span>{copy.score} {consoleScore} Â· {copy.best} {consoleBestScore}</span>
               <span>{copy.restartKeys}</span>
-              <button type="button" onClick={() => apiRef.current?.restartConsoleGame()}>{copy.restart}</button>
-              <button type="button" onClick={() => apiRef.current?.interact()}>{copy.exitGame}</button>
+              <button type="button" data-ui="minigame-restart" onClick={() => apiRef.current?.restartConsoleGame()}>{copy.restart}</button>
+              <button type="button" data-ui="minigame-exit" onClick={() => apiRef.current?.interact()}>{copy.exitGame}</button>
             </section>}
-            {!consoleGameOver && <div className="room-game-console-controls" aria-label="NEON DODGE touch controls">
+            {!consoleGameOver && <div className="room-game-console-controls" aria-label="NEON DODGE touch controls" data-ui="minigame-controls">
               <button type="button" aria-label="Move left" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.moveKey('a', true); }}>â†</button>
               <button type="button" aria-label="Move right" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.moveKey('d', true); }}>â†’</button>
               <button type="button" aria-label={copy.shield} onClick={() => apiRef.current?.consoleAction()}>Dash</button>
@@ -2405,30 +2406,30 @@ export function StudioScene({
             <button type="button" aria-label="Sauter" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.jump(); }}>â†¥</button>
           </div>}
         </>}
-        {walking && resting && <section className="room-rest-card" aria-live="polite">
+        {walking && resting && <section className="room-rest-card" aria-live="polite" data-ui="rest-card">
           <span className="room-rest-moon" aria-hidden="true">ZZZ</span>
           <strong>{copy.sleepingTitle}</strong>
           <small>{copy.sleepingHint}</small>
-          <button type="button" onClick={() => apiRef.current?.interact()}>{copy.wake}</button>
+          <button type="button" data-ui="wake-character" onClick={() => apiRef.current?.interact()}>{copy.wake}</button>
         </section>}
-        {walking && roomProjectsView && <section className="room-project-gallery-ui" aria-live="polite">
+        {walking && roomProjectsView && <section className="room-project-gallery-ui" aria-live="polite" data-ui="room-projects-panel">
           <span>{copy.galleryTitle}</span><small>Projets complets \u00b7 mur arri\u00e8re</small>
-          <button type="button" onClick={() => apiRef.current?.returnToRoom()}><kbd>ESC</kbd>{copy.returnToRoom}</button>
+          <button type="button" data-ui="return-to-room" onClick={() => apiRef.current?.returnToRoom()}><kbd>ESC</kbd>{copy.returnToRoom}</button>
         </section>}
         {walking && !usingPC && sitting && gamePrompt === 'desk' && ENABLE_PC_VIEW && <button type="button" className="pc-use-prompt" onClick={() => apiRef.current?.enterPC()}>
           <kbd>E</kbd>{lang === 'fr' ? 'Utiliser le PC' : 'Use PC'}
         </button>}
       </div>}
-      {active && usingPC && ENABLE_PC_VIEW && <section className="pc-view" aria-label={lang === 'fr' ? 'Vue du PC' : 'PC view'} onTouchStart={(event) => { pcTouchStartX.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={(event) => {
+      {active && usingPC && ENABLE_PC_VIEW && <section className="pc-view" aria-label={lang === 'fr' ? 'Vue du PC' : 'PC view'} data-ui="pc-view" onTouchStart={(event) => { pcTouchStartX.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={(event) => {
         const startX = pcTouchStartX.current; pcTouchStartX.current = null;
         if (startX === null) return;
         const delta = event.changedTouches[0]?.clientX - startX;
         if (Math.abs(delta) > 48) apiRef.current?.selectPCProject(pcProjectIndex + (delta < 0 ? 1 : -1));
       }}>
         <div className="pc-vignette" aria-hidden="true" />
-        <button type="button" className="pc-back" onClick={() => apiRef.current?.exitPC()}>{lang === 'fr' ? '← Retour à la pièce' : '← Back to room'} <kbd>Esc</kbd></button>
+        <button type="button" className="pc-back" data-ui="pc-back" onClick={() => apiRef.current?.exitPC()}>{lang === 'fr' ? '← Retour à la pièce' : '← Back to room'} <kbd>Esc</kbd></button>
         <div className="pc-workspace">
-          <nav className="pc-project-list" aria-label={lang === 'fr' ? 'Projets' : 'Projects'}>
+          <nav className="pc-project-list" aria-label={lang === 'fr' ? 'Projets' : 'Projects'} data-ui="pc-project-list">
             <div className="pc-panel-heading"><span className="pc-live-dot" />TAHA / PROJECTS <small>{String(pcProjectIndex + 1).padStart(2, '0')} / {String(CASES.length).padStart(2, '0')}</small></div>
             {CASES.map((project, index) => <button type="button" key={project.id} className={`pc-project-row ${index === pcProjectIndex ? 'is-active' : ''}`} onClick={() => apiRef.current?.selectPCProject(index)}>
               <span className="pc-row-status" /><strong>{project.title}</strong><small>{project.chips.slice(0, 3).join(' · ')}</small>
@@ -2441,7 +2442,7 @@ export function StudioScene({
               <div className="pc-actions"><button type="button" onClick={() => apiRef.current?.openPCLink('code')}>{lang === 'fr' ? 'Voir le code' : 'View code'} <kbd>C</kbd></button>{CASES[pcProjectIndex].liveUrl && <button type="button" className="is-primary" onClick={() => apiRef.current?.openPCLink('live')}>{lang === 'fr' ? 'Application' : 'Live app'} <kbd>↵</kbd></button>}</div>
             </div>
           </article>
-          <footer className="pc-controls"><button type="button" onClick={() => apiRef.current?.selectPCProject(pcProjectIndex - 1)}>← {lang === 'fr' ? 'Précédent' : 'Previous'}</button><div className="pc-dots">{CASES.map((project, index) => <button aria-label={project.title} aria-current={index === pcProjectIndex} key={project.id} onClick={() => apiRef.current?.selectPCProject(index)} />)}</div><span>{String(pcProjectIndex + 1).padStart(2, '0')} / {String(CASES.length).padStart(2, '0')}</span><button type="button" onClick={() => apiRef.current?.selectPCProject(pcProjectIndex + 1)}>{lang === 'fr' ? 'Suivant' : 'Next'} →</button></footer>
+          <footer className="pc-controls" data-ui="pc-controls"><button type="button" data-ui="pc-previous-project" aria-label={lang === 'fr' ? 'Projet précédent' : 'Previous project'} onClick={() => apiRef.current?.selectPCProject(pcProjectIndex - 1)}>← {lang === 'fr' ? 'Précédent' : 'Previous'}</button><div className="pc-dots">{CASES.map((project, index) => <button data-ui={`pc-project-${project.id}`} aria-label={project.title} aria-current={index === pcProjectIndex} key={project.id} onClick={() => apiRef.current?.selectPCProject(index)} />)}</div><span>{String(pcProjectIndex + 1).padStart(2, '0')} / {String(CASES.length).padStart(2, '0')}</span><button type="button" data-ui="pc-next-project" aria-label={lang === 'fr' ? 'Projet suivant' : 'Next project'} onClick={() => apiRef.current?.selectPCProject(pcProjectIndex + 1)}>{lang === 'fr' ? 'Suivant' : 'Next'} →</button></footer>
         </div>
       </section>}
       {active && avatarLoading && <div className="avatar-loading" role="status">Chargement du personnageâ€¦</div>}

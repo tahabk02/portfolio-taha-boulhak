@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CASES, CFG, PROFILE, YOUTUBE_VIDEOS } from '../data/portfolio';
 import { COPY, type Language } from '../config/copy';
 
@@ -74,25 +74,36 @@ function TechLogo({ mark }: { mark: TechMarkName }) {
  */
 export function FastModePage({ canEnter3D, onEnter3D, onTrack, lang, onToggleLanguage }: FastModePageProps) {
   const [contactOpen, setContactOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const track = (event: string, meta?: Record<string, unknown>) => onTrack?.(event, meta);
   const copy = COPY[lang];
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [menuOpen]);
+
   return (
-    <div className="fast-page">
-      <button className="fast-hire-sticky" type="button" onClick={() => { track('hire_me_clicked', { source: 'fast-sticky' }); setContactOpen(true); }}>{copy.hire}</button>
-      <header className="fast-topbar">
-        <a className="fast-logo" href="#top" aria-label={`${PROFILE.wordmark} home`}>
+    <div className="fast-page" data-ui="fast-mode-page">
+      <button className="fast-hire-sticky" type="button" data-ui="fast-hire" onClick={() => { track('hire_me_clicked', { source: 'fast-sticky' }); setContactOpen(true); }}>{copy.hire}</button>
+      <header className="fast-topbar" data-ui="fast-topbar">
+        <a className="fast-logo" data-ui="fast-home" href="#top" aria-label={`${PROFILE.wordmark} home`}>
           {PROFILE.wordmark}
         </a>
-        <nav className="fast-nav" aria-label={copy.projects}>
-          <a href="#projects">{copy.projects}</a>
-          <a href="#expertise">{copy.expertise}</a>
-          <a href="#stack">{copy.stack}</a>
-          <a href="#about">{copy.about}</a>
-          <a href="#contact">{copy.contact}</a>
-          <button type="button" className="fast-lang-toggle" onClick={onToggleLanguage} aria-label={copy.language}>{lang.toUpperCase()}</button>
+        <button type="button" className="fast-menu-toggle" data-ui="fast-menu" aria-expanded={menuOpen} aria-label={menuOpen ? copy.closeMenu : copy.menu} onClick={() => setMenuOpen((open) => !open)}>{menuOpen ? '×' : '☰'}</button>
+        <nav className={`fast-nav ${menuOpen ? 'is-open' : ''}`} aria-label={copy.projects} data-ui="fast-navigation">
+          <a data-ui="fast-projects" href="#projects">{copy.projects}</a>
+          <a data-ui="fast-expertise" href="#expertise">{copy.expertise}</a>
+          <a data-ui="fast-stack" href="#stack">{copy.stack}</a>
+          <a data-ui="fast-about" href="#about">{copy.about}</a>
+          <a data-ui="fast-contact" href="#contact">{copy.contact}</a>
+          <button type="button" className="fast-lang-toggle" data-ui="fast-language" onClick={onToggleLanguage} aria-label={copy.language}>{lang.toUpperCase()}</button>
           {canEnter3D && (
-            <button type="button" className="fast-cta-small" onClick={onEnter3D}>
+            <button type="button" className="fast-cta-small" data-ui="fast-exit" onClick={onEnter3D}>
               {copy.enter3d}
             </button>
           )}
@@ -109,10 +120,10 @@ export function FastModePage({ canEnter3D, onEnter3D, onTrack, lang, onToggleLan
               {copy.introBody}
             </p>
             <div className="fast-hero-actions">
-              <a className="fast-cta" href="#projects">
+              <a className="fast-cta" data-ui="fast-explore" href="#projects">
                 {copy.explore}
               </a>
-              <button className="fast-cta ghost" type="button" onClick={() => { track('hire_me_clicked', { source: 'fast-hero' }); setContactOpen(true); }}>
+              <button className="fast-cta ghost" data-ui="fast-hero-hire" type="button" onClick={() => { track('hire_me_clicked', { source: 'fast-hero' }); setContactOpen(true); }}>
                 {copy.hire}
               </button>
             </div>
@@ -134,6 +145,7 @@ export function FastModePage({ canEnter3D, onEnter3D, onTrack, lang, onToggleLan
                 <button
                   type="button"
                   className="fast-card-media"
+                  data-ui={`fast-project-${project.id}`}
                   onClick={() => track('project_opened', { project: project.id })}
                 >
                   <img src={project.photo} alt={`${project.title} preview`} loading="lazy" />
@@ -260,16 +272,16 @@ export function FastModePage({ canEnter3D, onEnter3D, onTrack, lang, onToggleLan
           </div>
         </section>
 
-        <footer className="fast-footer">
+        <footer className="fast-footer" data-ui="fast-footer">
           <span>{PROFILE.name} · {PROFILE.script} · 2026</span>
           {canEnter3D && (
-            <button type="button" onClick={onEnter3D}>
+            <button type="button" data-ui="fast-exit-footer" onClick={onEnter3D}>
               {copy.enter3d}
             </button>
           )}
         </footer>
       </main>
-      {contactOpen && <div className="fast-contact-modal" role="dialog" aria-modal="true" aria-label={copy.contact}>
+      {contactOpen && <div className="fast-contact-modal" role="dialog" aria-modal="true" aria-label={copy.contact} data-ui="fast-contact-modal">
         <section><button type="button" className="fast-contact-close" aria-label={copy.closeContact} onClick={() => setContactOpen(false)}>×</button>
           <h2>{copy.contact}</h2>
           <a href={`mailto:${PROFILE.email}`}>Email · {PROFILE.email}</a>

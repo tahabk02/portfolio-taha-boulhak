@@ -104,6 +104,7 @@ export default function App() {
   const [dockCollapsed, setDockCollapsed] = useState<boolean>(() =>
     typeof window !== 'undefined' ? window.innerWidth <= 640 : false
   );
+  const [navOpen, setNavOpen] = useState(false);
 
   const [pose, setPose] = useState<PoseResult>(() =>
     computePose(
@@ -456,6 +457,7 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (fastMode) return;
       if (e.key === 'Escape') {
+        if (navOpen) { setNavOpen(false); return; }
         setContactOpen(false);
         if (immersivePortfolio) toHero();
         return;
@@ -487,7 +489,7 @@ export default function App() {
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [nextCase, prevCase, toCase, immersivePortfolio, toHero, fastMode]);
+  }, [nextCase, prevCase, toCase, immersivePortfolio, toHero, fastMode, navOpen]);
 
   const activeCase = CASES[caseIndex];
   const heroLayout = pose.heroLayout;
@@ -704,7 +706,8 @@ export default function App() {
       {/* Fixed UI Layer */}
         <div className={`ui ${pose.mobile ? 'mob' : ''}`} data-ui="hud">
         <header className="hud-topbar" data-ui="topbar">
-          <nav className="hud-nav hud-nav-left" aria-label="Main navigation" data-ui="main-navigation">
+          <nav className={`hud-nav hud-nav-left ${navOpen ? 'is-open' : ''}`} aria-label={copy.mainNavigation} data-ui="main-navigation">
+            <UIButton variant="icon" name="mobile-menu" className="hud-menu-toggle" aria-label={navOpen ? copy.closeMenu : copy.menu} aria-expanded={navOpen} onClick={() => setNavOpen((open) => !open)}>☰</UIButton>
             <UIButton variant="primary" name="home" className="tag t1" id="b1" onClick={toHero}>{copy.home}</UIButton>
             <UIButton variant="primary" name="projects" className="tag t2" id="b2" onClick={() => enter3DView('projects')}>{copy.projects}</UIButton>
             <UIButton variant="primary" name="about" className="tag about-tag" onClick={() => enter3DView('about')}>{copy.about}</UIButton>
@@ -831,6 +834,7 @@ export default function App() {
         </button>
 
         <ControlDock
+          lang={lang}
           visible={mode === 'case'}
           collapsed={dockCollapsed}
           onToggleCollapse={() => setDockCollapsed((c) => !c)}
@@ -842,6 +846,8 @@ export default function App() {
           activeFinish={finish}
           onSelectFinish={setFinish}
           activeYoutubeId={activeYoutubeId}
+          onPreviousProject={prevCase}
+          onNextProject={nextCase}
           onSelectYoutube={(vidId) => {
             setActiveYoutubeId(vidId);
             if (vidId) {
@@ -856,15 +862,15 @@ export default function App() {
       </div>
 
       {/* Contact Overlay */}
-      <div className={`projects-overlay ${projectsOpen ? 'on' : ''}`} id="projects-overlay" onClick={(e) => {
+      <div className={`projects-overlay ${projectsOpen ? 'on' : ''}`} id="projects-overlay" data-ui="projects-modal" onClick={(e) => {
         if ((e.target as HTMLElement).id === 'projects-overlay') setProjectsOpen(false);
       }}>
-        <section className="projects-panel" aria-label="Project catalogue">
+        <section className="projects-panel" aria-label="Project catalogue" data-ui="projects-panel">
           <div className="projects-heading">
             <div><span className="projects-eyebrow">PORTFOLIO / {catalogTab.toUpperCase()}</span><h2>{{ projects: 'Project archive', repositories: 'All repositories', github: 'GitHub dashboard', courses: 'Courses & videos', about: 'About me', skills: 'Skills & tools', contact: 'Get in touch' }[catalogTab]}</h2></div>
             <button type="button" className="ov-close" aria-label="Close project archive" onClick={() => setProjectsOpen(false)}>×</button>
           </div>
-          <nav className="catalog-tabs" aria-label="Portfolio sections">
+          <nav className="catalog-tabs" aria-label="Portfolio sections" data-ui="catalog-navigation">
             <button type="button" className={catalogTab === 'projects' ? 'is-active' : ''} onClick={() => setCatalogTab('projects')}>Projects ({CASES.length})</button>
             <button type="button" className={catalogTab === 'repositories' ? 'is-active' : ''} onClick={() => setCatalogTab('repositories')}>GitHub repositories</button>
             <button type="button" className={catalogTab === 'github' ? 'is-active' : ''} onClick={() => setCatalogTab('github')}>GitHub dashboard</button>

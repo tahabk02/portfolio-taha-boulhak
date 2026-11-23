@@ -3,7 +3,8 @@ export type Language = 'en' | 'fr';
 
 export const COPY: Record<Language, Record<string, string>> = {
   en: {
-    home: 'Home', projects: 'Projects', contact: 'Contact', allProjects: 'All projects', about: 'About',
+    home: 'Home', projects: 'Projects', contact: 'Contact', allProjects: 'All projects', about: 'About', menu: 'Open navigation menu', closeMenu: 'Close navigation menu', mainNavigation: 'Main navigation',
+    dockAngle: 'Angle', dockChassis: 'Chassis', dockVideos: 'YouTube 3D', hideControls: 'Hide', showControls: 'Show 3D controls', previousProject: 'Previous project', nextProject: 'Next project',
     hire: 'Hire me', fastMode: 'Fast mode', language: 'Language', enter3d: 'Enter the 3D studio',
     intro: 'Full-stack developer · Casablanca, Morocco',
     introBody: 'I build complete web applications — clear interfaces, reliable APIs and interactive 3D experiences.',
@@ -42,7 +43,8 @@ export const COPY: Record<Language, Record<string, string>> = {
     capabilityTwo: 'Expériences interactives', capabilityTwoBody: 'Des outils pédagogiques qui rendent les sujets complexes plus accessibles.',
     capabilityThree: 'Systèmes évolutifs', capabilityThreeBody: 'Une architecture soignée, des tableaux de bord utiles et des bases maintenables.',
     processEyebrow: 'MA MÉTHODE', processTitle: 'Des étapes simples, une livraison solide.', processOne: 'Comprendre', processOneBody: 'Définir les utilisateurs, le problème et les critères de réussite.', processTwo: 'Construire', processTwoBody: 'Livrer par étapes avec les bons outils pour le besoin.', processThree: 'Affiner', processThreeBody: 'Vérifier les détails, améliorer l’expérience et préparer la mise en ligne.',
-    home: 'Accueil', projects: 'Projets', contact: 'Contact', allProjects: 'Tous les projets', about: 'À propos',
+    home: 'Accueil', projects: 'Projets', contact: 'Contact', allProjects: 'Tous les projets', about: 'À propos', menu: 'Ouvrir le menu', closeMenu: 'Fermer le menu', mainNavigation: 'Navigation principale',
+    dockAngle: 'Angle', dockChassis: 'Boîtier', dockVideos: 'Vidéos 3D', hideControls: 'Masquer', showControls: 'Afficher les contrôles 3D', previousProject: 'Projet précédent', nextProject: 'Projet suivant',
     hire: 'Me contacter', fastMode: 'Mode rapide', language: 'Langue', enter3d: 'Entrer dans le studio 3D',
     intro: 'Développeur full-stack · Casablanca, Maroc',
     introBody: 'Je crée des applications web complètes : interfaces claires, API fiables et expériences 3D interactives.',
