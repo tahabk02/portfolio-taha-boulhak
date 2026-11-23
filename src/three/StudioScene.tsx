@@ -17,6 +17,7 @@ import { COPY, type Language } from '../config/copy';
 import { CAMERA_LIMITS, COLLISION, ROOM_COLLIDERS } from '../config/colliders';
 import { PROJECT_GALLERY } from '../config/projectGallery';
 import { CEILING, ENABLE_CEILING_V2 } from '../config/ceiling';
+import { ENABLE_PC_VIEW, PC_VIEW } from '../config/pc';
 import { getCeilingLightingState, setCeilingPreset, toggleCeilingLighting } from '../lib/ceilingLighting';
 import { resolvePlanarMove, pushOutOfColliders } from '../lib/collision';
 import { InteractionMachine, type InteractionState, type SeatZone } from '../lib/interactionState';
@@ -392,6 +393,10 @@ export function StudioScene({
   const [deskMessage, setDeskMessage] = useState('');
   const [deskNotes, setDeskNotes] = useState<string[]>([]);
   const [deskCode, setDeskCode] = useState("const greeting = 'Salam!';\n\nfunction startCoding() {\n  console.log(greeting);\n}\n\nstartCoding();");
+  const [usingPC, setUsingPC] = useState(false);
+  const [pcProjectIndex, setPcProjectIndex] = useState(0);
+  const pcPauseUntilRef = useRef(0);
+  const pcTouchStartX = useRef<number | null>(null);
   const deskModeRef = useRef<'talk' | 'write' | 'code' | null>(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const walkingRef = useRef(false);
@@ -443,6 +448,10 @@ export function StudioScene({
     setDeskCode: (code: string | null) => void;
     animateSpeech: (duration: number) => void;
     updateGithubDashboard: (profile: ScreenGithubProfile | null, repos: ScreenRepository[], loading: boolean, error: string, page?: number) => void;
+    enterPC: () => void;
+    exitPC: () => void;
+    selectPCProject: (index: number) => void;
+    openPCLink: (kind: 'code' | 'live') => void;
       requestRender: () => void;
   } | null>(null);
 
@@ -698,9 +707,10 @@ export function StudioScene({
     const assembly = buildStudioShowcase(finishRef.current, screenTexture, maxAnisotropy);
     scene.add(assembly.root);
     const ceilingRoomLights = {
-      hemisphere: hemiLight, key: keyLight, rim: rimLight,
+      hemisphere: hemiLight, key: keyLight, rim: rimLight, intensityScale: 1,
       accents: [galleryWarmFill, wallWash, shelfWarmth, deskPractical],
     };
+    let pcLightFactor = 1;
     let ceilingContinuous = false;
     const ceilingSwitchPanel = assembly.root.getObjectByName('ceiling-switch-panel');
     const ceilingSwitchButton = assembly.root.getObjectByName('ceiling-switch-button') as THREE.Mesh | undefined;
@@ -839,6 +849,14 @@ export function StudioScene({
     let isResting = false;
     let isGettingUp = false;
     let isSitting = false;
+    let isUsingPC = false;
+    const pcReturnPosition = new THREE.Vector3();
+    const pcReturnTarget = new THREE.Vector3();
+    let pcReturnFov = 52;
+    const pcCameraNormal = new THREE.Vector3();
+    const pcCameraCenter = new THREE.Vector3();
+    const pcBounds = new THREE.Box3();
+    const lidWorldQuaternion = new THREE.Quaternion();
     let isConsolePlaying = false;
     let isRoomProjectsView = false;
     let consoleGameOverActive = false;
@@ -886,6 +904,53 @@ export function StudioScene({
     let toastTimer = 0;
     let deskSpeechUntil = 0;
     const interaction = new InteractionMachine();
+    const enterPC = () => {
+      if (!ENABLE_PC_VIEW || isUsingPC || !walkingRef.current || !isSitting || sittingOn !== 'desk') return;
+      isUsingPC = true;
+      const initialIndex = Math.max(0, CASES.findIndex((item) => item.id === caseRef.current.id));
+      setPcProjectIndex(initialIndex);
+      if (CASES[initialIndex]?.id !== caseRef.current.id) apiRef.current?.applyCase(CASES[initialIndex], false);
+      interaction.enterPC(); syncInteraction();
+      pressedKeys.clear(); movementVelocity.set(0, 0);
+      pcReturnPosition.copy(camera.position); pcReturnTarget.copy(controls.target); pcReturnFov = camera.fov;
+      assembly.screenMesh.updateWorldMatrix(true, false);
+      pcBounds.setFromObject(assembly.screenMesh);
+      pcBounds.getCenter(pcCameraCenter);
+      assembly.screenMesh.getWorldQuaternion(lidWorldQuaternion);
+      pcCameraNormal.set(0, 0, 1).applyQuaternion(lidWorldQuaternion).normalize();
+      const width = pcBounds.max.x - pcBounds.min.x;
+      const fitDistance = width / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.max(0.5, camera.aspect) * 0.82);
+      const distance = THREE.MathUtils.clamp(fitDistance, PC_VIEW.minCameraDistance, PC_VIEW.maxCameraDistance);
+      camTargetPosRef.current.copy(pcCameraCenter).addScaledVector(pcCameraNormal, distance);
+      camTargetPosRef.current.y = THREE.MathUtils.clamp(camTargetPosRef.current.y, CAMERA_LIMITS.minY, CAMERA_LIMITS.maxY);
+      camTargetLookRef.current.copy(pcCameraCenter);
+      camera.fov = Math.max(28, pcReturnFov + PC_VIEW.fovOffset); camera.updateProjectionMatrix();
+      cameraAnimatingRef.current = true;
+      controls.enabled = false;
+      player.root.visible = false;
+      setUsingPC(true); pcPauseUntilRef.current = performance.now();
+      console.debug('pc_entered'); requestRender();
+    };
+    const exitPC = () => {
+      if (!isUsingPC) return;
+      isUsingPC = false; interaction.exitPC(); syncInteraction();
+      player.root.visible = true; camera.fov = pcReturnFov; camera.updateProjectionMatrix();
+      camTargetPosRef.current.copy(pcReturnPosition); camTargetLookRef.current.copy(pcReturnTarget);
+      cameraAnimatingRef.current = true; controls.enabled = false;
+      setUsingPC(false); console.debug('pc_exited'); requestRender();
+    };
+    const selectPCProject = (index: number) => {
+      const next = (index + CASES.length) % CASES.length;
+      setPcProjectIndex(next); pcPauseUntilRef.current = performance.now() + PC_VIEW.interactionPauseMs;
+      apiRef.current?.applyCase(CASES[next], true); console.debug('project_selected', CASES[next].id);
+    };
+    const openPCLink = (kind: 'code' | 'live') => {
+      const project = CASES[pcProjectIndex];
+      const url = kind === 'code' ? project.repo : project.liveUrl;
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      console.debug(kind === 'code' ? 'code_clicked' : 'live_app_clicked', project.id);
+      pcPauseUntilRef.current = performance.now() + PC_VIEW.interactionPauseMs;
+    };
     const syncInteraction = () => {
       if (disposed || !FEATURE_FLAGS.ENABLE_DEBUG_STATE_OVERLAY) return;
       setInteractionState(interaction.state);
@@ -981,6 +1046,7 @@ export function StudioScene({
       else pressedKeys.delete(normalized);
     };
     const setWalking = (enabled: boolean) => {
+      if (!enabled && isUsingPC) exitPC();
       if (!enabled && isConsolePlaying) setConsoleGame(false);
       isRoomProjectsView = false;
       setRoomProjectsView(false);
@@ -1226,6 +1292,18 @@ export function StudioScene({
     };
     const handleGameKeyDown = (event: KeyboardEvent) => {
       if (!walkingRef.current) return;
+      if (isUsingPC) {
+        const target = event.target;
+        if (target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+        const key = event.key.toLowerCase();
+        if (key === 'escape' || key === 'e') exitPC();
+        else if (key === 'arrowleft' || key === 'a') selectPCProject(pcProjectIndex - 1);
+        else if (key === 'arrowright' || key === 'd') selectPCProject(pcProjectIndex + 1);
+        else if (key === 'enter') openPCLink('live');
+        else if (key === 'c') openPCLink('code');
+        else return;
+        event.preventDefault(); event.stopImmediatePropagation(); return;
+      }
       if (isRoomProjectsView) {
         if (event.key.toLowerCase() === 'e' || event.key === 'Escape') {
           event.preventDefault(); event.stopImmediatePropagation(); returnToRoom();
@@ -1249,7 +1327,8 @@ export function StudioScene({
       if (event.key.toLowerCase() === 'e') {
         event.preventDefault();
         event.stopImmediatePropagation();
-        interact();
+        if (ENABLE_PC_VIEW && isSitting && sittingOn === 'desk') enterPC();
+        else interact();
         return;
       }
       if (isConsolePlaying && event.code === 'Space') {
@@ -1405,11 +1484,14 @@ export function StudioScene({
       const reducedMotion = reducedMotionRef.current;
 
       let needsMoreFrames = false;
+      pcLightFactor = dampValue(pcLightFactor, isUsingPC ? 0.75 : 1, 4.5, dt);
+      ceilingRoomLights.intensityScale = pcLightFactor;
       const ceilingAnimating = assembly.ceilingRig?.tick(dt, now, getCeilingLightingState(), isSoftwareGl, reducedMotion, ceilingRoomLights) ?? false;
       ceilingContinuous = ceilingAnimating && !reducedMotion && !isSoftwareGl;
       needsMoreFrames = ceilingAnimating;
+      if (Math.abs(pcLightFactor - (isUsingPC ? 0.75 : 1)) > 0.008) needsMoreFrames = true;
 
-      if (walkingRef.current && !isRoomProjectsView) {
+      if (walkingRef.current && !isRoomProjectsView && !isUsingPC) {
         const inputX = Number(pressedKeys.has('d') || pressedKeys.has('arrowright')) - Number(pressedKeys.has('a') || pressedKeys.has('arrowleft'));
         const inputY = Number(pressedKeys.has('w') || pressedKeys.has('arrowup')) - Number(pressedKeys.has('s') || pressedKeys.has('arrowdown'));
         const inputMagnitude = Math.hypot(inputX, inputY);
@@ -1853,6 +1935,14 @@ export function StudioScene({
         return;
       }
       if (Math.hypot(dx, dy) > 6) return;
+      const pcScreenHit = raycaster.intersectObject(assembly.screenMesh, false)[0];
+      if (ENABLE_PC_VIEW && pcScreenHit && walkingRef.current) {
+        if (isSitting && sittingOn === 'desk') enterPC();
+        else if (!isSitting && Math.hypot(player.root.position.x, player.root.position.z + 0.87) < 3.5) {
+          lastGamePrompt = 'desk'; setGamePrompt('desk'); interact();
+        }
+        return;
+      }
       const tabletHit = raycaster.intersectObjects(tabletScreens, false)[0];
       if (tabletHit) {
         const screen = tabletHit.object as THREE.Mesh;
@@ -1966,6 +2056,14 @@ export function StudioScene({
         cameraAnimatingRef.current = false;
       }
       lastAspect = asp;
+      if (isUsingPC) {
+        assembly.screenMesh.updateWorldMatrix(true, false);
+        pcBounds.setFromObject(assembly.screenMesh); pcBounds.getCenter(pcCameraCenter);
+        const width = pcBounds.max.x - pcBounds.min.x;
+        const fitDistance = width / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * Math.max(0.5, asp) * 0.82);
+        camTargetPosRef.current.copy(pcCameraCenter).addScaledVector(pcCameraNormal, THREE.MathUtils.clamp(fitDistance, PC_VIEW.minCameraDistance, PC_VIEW.maxCameraDistance));
+        camTargetLookRef.current.copy(pcCameraCenter); cameraAnimatingRef.current = true;
+      }
       requestRender();
     };
     window.addEventListener('resize', handleResize);
@@ -1984,6 +2082,7 @@ export function StudioScene({
     };
 
     apiRef.current = {
+      enterPC, exitPC, selectPCProject, openPCLink,
       repaint: () => {
         drawCase(isSoftwareGl ? 10 : 0.2, 0);
         screenTexture.needsUpdate = true;
@@ -2145,6 +2244,19 @@ export function StudioScene({
     apiRef.current?.syncOverlay();
   }, [youtubeVideoId, active]);
 
+  useEffect(() => {
+    if (!usingPC || !ENABLE_PC_VIEW) return;
+    const timer = window.setInterval(() => {
+      if (document.hidden || performance.now() < pcPauseUntilRef.current) return;
+      setPcProjectIndex((current) => {
+        const next = (current + 1) % CASES.length;
+        apiRef.current?.applyCase(CASES[next], true);
+        return next;
+      });
+    }, PC_VIEW.autoAdvanceMs);
+    return () => window.clearInterval(timer);
+  }, [usingPC]);
+
   return (
     <div className="three-stage-wrapper">
       <div
@@ -2202,7 +2314,7 @@ export function StudioScene({
           <span aria-hidden="true">{walking ? 'â†©' : 'â–¶'}</span>
           {walking ? copy.leaveRoom : copy.exploreRoom}
         </button>
-        {walking && !roomProjectsView && <>
+        {walking && !roomProjectsView && !usingPC && <>
           {!resting && <div className="room-game-hint"><strong>{consolePlaying ? 'NEON DODGE' : copy.exploreRoom}</strong><span>{consolePlaying ? copy.gameControls : copy.controls}</span></div>}
           {FEATURE_FLAGS.ENABLE_DEBUG_STATE_OVERLAY && <output className="room-state-debug" aria-live="polite">{interactionState}</output>}
           {gamePrompt && !resting && <button type="button" className="room-game-action" onClick={() => apiRef.current?.interact()}>
@@ -2303,7 +2415,35 @@ export function StudioScene({
           <span>{copy.galleryTitle}</span><small>Projets complets \u00b7 mur arri\u00e8re</small>
           <button type="button" onClick={() => apiRef.current?.returnToRoom()}><kbd>ESC</kbd>{copy.returnToRoom}</button>
         </section>}
+        {walking && !usingPC && sitting && gamePrompt === 'desk' && ENABLE_PC_VIEW && <button type="button" className="pc-use-prompt" onClick={() => apiRef.current?.enterPC()}>
+          <kbd>E</kbd>{lang === 'fr' ? 'Utiliser le PC' : 'Use PC'}
+        </button>}
       </div>}
+      {active && usingPC && ENABLE_PC_VIEW && <section className="pc-view" aria-label={lang === 'fr' ? 'Vue du PC' : 'PC view'} onTouchStart={(event) => { pcTouchStartX.current = event.touches[0]?.clientX ?? null; }} onTouchEnd={(event) => {
+        const startX = pcTouchStartX.current; pcTouchStartX.current = null;
+        if (startX === null) return;
+        const delta = event.changedTouches[0]?.clientX - startX;
+        if (Math.abs(delta) > 48) apiRef.current?.selectPCProject(pcProjectIndex + (delta < 0 ? 1 : -1));
+      }}>
+        <div className="pc-vignette" aria-hidden="true" />
+        <button type="button" className="pc-back" onClick={() => apiRef.current?.exitPC()}>{lang === 'fr' ? '← Retour à la pièce' : '← Back to room'} <kbd>Esc</kbd></button>
+        <div className="pc-workspace">
+          <nav className="pc-project-list" aria-label={lang === 'fr' ? 'Projets' : 'Projects'}>
+            <div className="pc-panel-heading"><span className="pc-live-dot" />TAHA / PROJECTS <small>{String(pcProjectIndex + 1).padStart(2, '0')} / {String(CASES.length).padStart(2, '0')}</small></div>
+            {CASES.map((project, index) => <button type="button" key={project.id} className={`pc-project-row ${index === pcProjectIndex ? 'is-active' : ''}`} onClick={() => apiRef.current?.selectPCProject(index)}>
+              <span className="pc-row-status" /><strong>{project.title}</strong><small>{project.chips.slice(0, 3).join(' · ')}</small>
+            </button>)}
+            <div className="pc-progress"><span style={{ width: `${((pcProjectIndex + 1) / CASES.length) * 100}%` }} /></div>
+          </nav>
+          <article className="pc-preview">
+            <div className="pc-preview-screen"><img src={CASES[pcProjectIndex].photo || `/projects/${CASES[pcProjectIndex].id}.jpg`} alt={`${CASES[pcProjectIndex].title} preview`} /><span className="pc-screen-label">LIVE PREVIEW / {CASES[pcProjectIndex].id.toUpperCase()}</span></div>
+            <div className="pc-preview-copy"><span className="pc-eyebrow">SELECTED BUILD / {String(pcProjectIndex + 1).padStart(2, '0')}</span><h1>{CASES[pcProjectIndex].title}</h1><p>{CASES[pcProjectIndex].text.replace(/^—\s*/, '')}</p><div className="pc-chips">{CASES[pcProjectIndex].chips.slice(0, 4).map((chip) => <span key={chip}>{chip}</span>)}</div>
+              <div className="pc-actions"><button type="button" onClick={() => apiRef.current?.openPCLink('code')}>{lang === 'fr' ? 'Voir le code' : 'View code'} <kbd>C</kbd></button>{CASES[pcProjectIndex].liveUrl && <button type="button" className="is-primary" onClick={() => apiRef.current?.openPCLink('live')}>{lang === 'fr' ? 'Application' : 'Live app'} <kbd>↵</kbd></button>}</div>
+            </div>
+          </article>
+          <footer className="pc-controls"><button type="button" onClick={() => apiRef.current?.selectPCProject(pcProjectIndex - 1)}>← {lang === 'fr' ? 'Précédent' : 'Previous'}</button><div className="pc-dots">{CASES.map((project, index) => <button aria-label={project.title} aria-current={index === pcProjectIndex} key={project.id} onClick={() => apiRef.current?.selectPCProject(index)} />)}</div><span>{String(pcProjectIndex + 1).padStart(2, '0')} / {String(CASES.length).padStart(2, '0')}</span><button type="button" onClick={() => apiRef.current?.selectPCProject(pcProjectIndex + 1)}>{lang === 'fr' ? 'Suivant' : 'Next'} →</button></footer>
+        </div>
+      </section>}
       {active && avatarLoading && <div className="avatar-loading" role="status">Chargement du personnageâ€¦</div>}
     </div>
   );

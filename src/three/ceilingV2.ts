@@ -13,6 +13,7 @@ export interface CeilingRoomLights {
   key: THREE.DirectionalLight;
   rim: THREE.DirectionalLight;
   accents: THREE.PointLight[];
+  intensityScale?: number;
 }
 
 export interface CeilingRig {
@@ -232,13 +233,14 @@ export function buildCeilingV2(root: THREE.Group, track: CeilingTracker, floorY:
     coveGlow.visible = !lowEnd; cones.visible = !lowEnd;
     pendantLight.intensity = lowEnd ? 0 : 1.2 * mix.pendant;
     deskSpot.intensity = lowEnd ? 0 : 1.35 * mix.spots;
-    roomLights.hemisphere.intensity = mix.ambient;
-    roomLights.key.intensity = 2.35 * mix.ambient;
-    roomLights.rim.intensity = 1.18 * mix.ambient;
-    roomLights.accents[0].intensity = 2.2 * mix.ambient;
-    roomLights.accents[1].intensity = 1.1 * mix.ambient;
-    roomLights.accents[2].intensity = 0.9 * mix.ambient;
-    roomLights.accents[3].intensity = 0.75 * mix.ambient;
+    const roomScale = roomLights.intensityScale ?? 1;
+    roomLights.hemisphere.intensity = mix.ambient * roomScale;
+    roomLights.key.intensity = 2.35 * mix.ambient * roomScale;
+    roomLights.rim.intensity = 1.18 * mix.ambient * roomScale;
+    roomLights.accents[0].intensity = 2.2 * mix.ambient * roomScale;
+    roomLights.accents[1].intensity = 1.1 * mix.ambient * roomScale;
+    roomLights.accents[2].intensity = 0.9 * mix.ambient * roomScale;
+    roomLights.accents[3].intensity = 0.75 * mix.ambient * roomScale;
     if (switchButton.material instanceof THREE.MeshStandardMaterial) switchButton.material.emissiveIntensity = switchButton.userData.hovered ? 1.4 : state.enabled ? 0.85 : 0.1;
 
     const isTransitioning = Math.abs(targetCove - mix.cove) > 0.006 || Math.abs(targetHex - mix.hex) > 0.006 || Math.abs(targetSpots - mix.spots) > 0.006 || Math.abs(targetPendant - mix.pendant) > 0.006 || Math.abs(targetAmbient - mix.ambient) > 0.006;

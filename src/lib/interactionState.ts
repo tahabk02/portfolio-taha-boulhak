@@ -2,6 +2,7 @@ export type InteractionState =
   | 'idle'
   | 'walking'
   | 'sitting-desk'
+  | 'using-pc'
   | 'sitting-podcast'
   | 'sitting-couch'
   | 'playing-game';
@@ -13,7 +14,8 @@ export const FAILSAFE_MS = 2000;
 const TRANSITIONS: Record<InteractionState, InteractionState[]> = {
   idle: ['walking'],
   walking: ['idle', 'sitting-desk', 'sitting-podcast', 'sitting-couch'],
-  'sitting-desk': ['walking', 'idle'],
+  'sitting-desk': ['walking', 'idle', 'using-pc'],
+  'using-pc': ['sitting-desk', 'walking'],
   'sitting-podcast': ['walking', 'idle'],
   'sitting-couch': ['walking', 'playing-game', 'idle'],
   'playing-game': ['walking', 'sitting-couch', 'idle'],
@@ -40,7 +42,7 @@ export class InteractionMachine {
   }
 
   get isSeated(): boolean {
-    return this.current === 'sitting-desk' || this.current === 'sitting-podcast' || this.current === 'sitting-couch';
+    return this.current === 'sitting-desk' || this.current === 'using-pc' || this.current === 'sitting-podcast' || this.current === 'sitting-couch';
   }
 
   get isPlaying(): boolean {
@@ -94,6 +96,9 @@ export class InteractionMachine {
     }
     this.go('walking');
   }
+
+  enterPC(): boolean { return this.go('using-pc'); }
+  exitPC(): boolean { return this.go('sitting-desk'); }
 
   exitGame(): void {
     this.pendingSince = null;
