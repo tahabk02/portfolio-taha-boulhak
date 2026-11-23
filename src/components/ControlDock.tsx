@@ -5,6 +5,7 @@ import {
   type CameraPreset,
   type ChassisFinish,
 } from '../data/portfolio';
+import { UIButton } from './UIButton';
 
 interface ControlDockProps {
   visible: boolean;
@@ -34,7 +35,9 @@ export function ControlDock({
   if (collapsed) {
     return (
       <div className="studio-dock-collapsed" data-testid="control-dock">
-        <button
+        <UIButton
+          variant="ghost"
+          name="dock-toggle"
           type="button"
           className="dock-toggle-btn"
           onClick={onToggleCollapse}
@@ -43,7 +46,7 @@ export function ControlDock({
         >
           <span>3D Studio</span>
           <kbd>H</kbd>
-        </button>
+        </UIButton>
       </div>
     );
   }
@@ -60,7 +63,9 @@ export function ControlDock({
           {CAMERA_PRESETS.map((p) => {
             const selected = p.id === activePreset.id;
             return (
-              <button
+              <UIButton
+                variant="ghost"
+                name={`camera-${p.id}`}
                 key={p.id}
                 type="button"
                 className={`dock-btn ${selected ? 'is-active' : ''}`}
@@ -68,7 +73,7 @@ export function ControlDock({
                 aria-pressed={selected}
               >
                 {p.label}
-              </button>
+              </UIButton>
             );
           })}
         </div>
@@ -82,7 +87,9 @@ export function ControlDock({
           {FINISHES.map((f) => {
             const selected = f.id === activeFinish.id;
             return (
-              <button
+              <UIButton
+                variant="ghost"
+                name={`finish-${f.id}`}
                 key={f.id}
                 type="button"
                 className={`dock-swatch-btn ${selected ? 'is-active' : ''}`}
@@ -96,7 +103,7 @@ export function ControlDock({
                   aria-hidden="true"
                 />
                 <span>{f.label}</span>
-              </button>
+              </UIButton>
             );
           })}
         </div>
@@ -110,7 +117,9 @@ export function ControlDock({
           {YOUTUBE_VIDEOS.map((vid) => {
             const selected = activeYoutubeId === vid.id;
             return (
-              <button
+              <UIButton
+                variant="ghost"
+                name={`video-${vid.id}`}
                 key={vid.id}
                 type="button"
                 className={`dock-btn dock-yt-btn ${selected ? 'is-active' : ''}`}
@@ -119,13 +128,15 @@ export function ControlDock({
                 title={`Play "${vid.title}" on the 3D laptop screen`}
               >
                 <span>▶ {vid.shortLabel}</span>
-              </button>
+              </UIButton>
             );
           })}
         </div>
       </div>
 
-      <button
+      <UIButton
+        variant="accent"
+        name="dock-hide"
         type="button"
         className="dock-collapse-btn"
         onClick={onToggleCollapse}
@@ -133,7 +144,7 @@ export function ControlDock({
         title="Hide 3D Controls (H)"
       >
         Hide <kbd>H</kbd>
-      </button>
+      </UIButton>
     </aside>
   );
 }
