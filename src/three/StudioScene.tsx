@@ -12,6 +12,9 @@ import {
   type ChassisFinish,
 } from '../data/portfolio';
 import { PERF, FEATURE_FLAGS } from '../config/perf';
+import { CAMERA_LIMITS, COLLISION, ROOM_COLLIDERS } from '../config/colliders';
+import { resolvePlanarMove, pushOutOfColliders } from '../lib/collision';
+import { InteractionMachine, type InteractionState, type SeatZone } from '../lib/interactionState';
 import { FpsGuard, prefersReducedMotion } from '../lib/perf';
 import {
   computeQuadMatrix3d,
@@ -360,6 +363,7 @@ export function StudioScene({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const videoOverlayRef = useRef<HTMLDivElement | null>(null);
   const [walking, setWalkingState] = useState(false);
+  const [interactionState, setInteractionState] = useState<InteractionState>('idle');
   const [gamePrompt, setGamePrompt] = useState<RoomAction>(null);
   const [gameToast, setGameToast] = useState('');
   const [resting, setResting] = useState(false);
@@ -785,6 +789,35 @@ export function StudioScene({
     ];
     let toastTimer = 0;
     let deskSpeechUntil = 0;
+    const interaction = new InteractionMachine();
+    const syncInteraction = () => {
+      if (disposed || !FEATURE_FLAGS.ENABLE_DEBUG_STATE_OVERLAY) return;
+      setInteractionState(interaction.state);
+    };
+    const pushOutSpawn = (x: number, z: number) =>
+      pushOutOfColliders({ x, z }, COLLISION.radius * COLLISION.radiusScale, ROOM_COLLIDERS).point;
+    const forceResetInteraction = () => {
+      if (isSitting) {
+        isSitting = false;
+        setSitting(false);
+        player.spine.position.y = 0.72;
+        for (const arm of player.arms) { arm.position.y = 1.22; arm.rotation.x = 0; arm.rotation.z = 0; }
+        for (const leg of player.legs) leg.rotation.x = 0;
+        for (const elbow of player.elbows) elbow.rotation.x = 0;
+        for (const knee of player.knees) knee.rotation.x = 0;
+      }
+      if (isResting) {
+        isResting = false;
+        setResting(false);
+        player.root.rotation.x = 0;
+      }
+      if (isConsolePlaying) setConsoleGame(false);
+      movementVelocity.set(0, 0);
+      pressedKeys.clear();
+      interaction.forceWalk();
+      syncInteraction();
+      requestRender();
+    };
     const updateDeskCode = (code: string | null) => {
       for (const name of ['wall-tablet-screen', 'gaming-pc-monitor']) {
         const screen = assembly.root.getObjectByName(name) as THREE.Mesh | undefined;
@@ -870,7 +903,8 @@ export function StudioScene({
       }
       controls.enabled = !enabled;
       if (enabled) {
-        player.root.position.set(0, floorY, 6.5);
+        const spawn = pushOutSpawn(0, 6.5);
+        player.root.position.set(spawn.x, floorY, spawn.z);
         player.root.rotation.y = 0;
         camera.fov = 52;
         cameraTarget.set(0, floorY + SCALE.thirdPersonCamera.height, 6.5);
@@ -879,13 +913,17 @@ export function StudioScene({
         controls.target.copy(cameraTarget);
         camera.position.copy(cameraDesired);
         player.root.rotation.set(0, 0, 0);
+        interaction.startWalking();
       } else {
         const resp = getResponsivePreset(presetRef.current, camera.aspect);
         camera.fov = camera.aspect < 1 ? Math.min(56, 36 / Math.pow(Math.max(0.4, camera.aspect), 0.48)) : 36;
-        controls.target.set(...resp.target);
-        camera.position.set(...resp.position);
+        camTargetPosRef.current.set(...resp.position);
+        camTargetLookRef.current.set(...resp.target);
+        cameraAnimatingRef.current = true;
         lidTargetRef.current = presetRef.current.lidAngle;
+        interaction.stopWalking();
       }
+      syncInteraction();
       camera.updateProjectionMatrix();
       controls.update();
       requestRender();
@@ -894,6 +932,8 @@ export function StudioScene({
       if (!walkingRef.current) return;
       if (isConsolePlaying) {
         setConsoleGame(false);
+        interaction.exitGame();
+        syncInteraction();
         return;
       }
       if (lastGamePrompt === 'gym') {
@@ -906,6 +946,12 @@ export function StudioScene({
       }
       if (lastGamePrompt === 'door') { setWalking(false); return; }
       if (lastGamePrompt === 'desk' || lastGamePrompt === 'gaming' || lastGamePrompt === 'sofa' || lastGamePrompt === 'podcast') {
+        if (isSitting) {
+          interaction.standUp();
+        } else {
+          const zone: SeatZone = lastGamePrompt === 'gaming' ? 'gaming' : lastGamePrompt;
+          interaction.requestSeat(zone, performance.now());
+        }
         if (!isSitting) {
           sittingOn = lastGamePrompt === 'gaming' ? 'gaming' : lastGamePrompt;
           if (lastGamePrompt === 'podcast') podcastSeatX = player.root.position.x < -8.5 ? -8.83 : -7.27;
@@ -981,6 +1027,8 @@ export function StudioScene({
         }
         window.clearTimeout(toastTimer);
         toastTimer = window.setTimeout(() => setGameToast(''), 2200);
+        interaction.confirm();
+        syncInteraction();
       } else if (lastGamePrompt === 'lamp') {
         lampEnabled = !lampEnabled;
         const lamp = bedsideLampLight;
@@ -1158,6 +1206,9 @@ export function StudioScene({
       if (!activeRef.current) return;
 
       const now = performance.now();
+      if (interaction.tickFailsafe(now)) {
+        forceResetInteraction();
+      }
       const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
       lastTime = now;
       const reducedMotion = reducedMotionRef.current;
@@ -1203,31 +1254,16 @@ export function StudioScene({
           const speed = dt;
           const px = player.root.position.x;
           const pz = player.root.position.z;
-            const blockedAt = (x: number, z: number) => {
-            const desk = Math.abs(x) < 1.28 && z > -2.36 && z < -1.18;
-            const officeChair = Math.abs(x) < 0.62 && z > -1.25 && z < 0.02;
-            const bed = x > 6.75 && x < 8.45 && z > 6.15 && z < 8.25;
-            const bedNightstand = x > 6.22 && x < 6.82 && z > 6.25 && z < 6.82;
-            const gamingDesk = x > 5.12 && x < 7.18 && z > -0.58 && z < 0.38;
-            const gamingChair = x > 5.52 && x < 6.78 && z > 0.25 && z < 1.42;
-            const podcastSeatLeft = x > -9.38 && x < -8.3 && z > -0.18 && z < 0.88;
-            const podcastSeatRight = x > -7.82 && x < -6.72 && z > -0.18 && z < 0.88;
-            const podcastTable = x > -8.82 && x < -7.28 && z > 0.65 && z < 2.16;
-            const miniGym = x > -8.28 && x < -6.32 && z > 2.78 && z < 4.73;
-            const sofa = x > 5.58 && x < 6.85 && z > 2.0 && z < 5.0;
-            const coffeeTable = x > 7.02 && x < 7.94 && z > 2.78 && z < 4.26;
-            const mediaConsole = x > 8.68 && z > 2.12 && z < 4.98;
-            const wall = z < -2.02 || x > 9.18 || x < -9.15;
-            return desk || officeChair || bed || bedNightstand || gamingDesk || gamingChair || podcastSeatLeft || podcastSeatRight || podcastTable || miniGym || sofa || coffeeTable || mediaConsole || wall;
-          };
-          const radius = SCALE.movement.capsuleRadius * 0.72;
-          const blocked = (x: number, z: number) => blockedAt(x, z) || blockedAt(x - radius, z) || blockedAt(x + radius, z) || blockedAt(x, z - radius) || blockedAt(x, z + radius);
-          const nextX = THREE.MathUtils.clamp(px + movementVelocity.x * speed, -9.1, 9.15);
-          const nextZ = THREE.MathUtils.clamp(pz + movementVelocity.y * speed, -1.9, 9.3);
-          if (!blocked(nextX, pz)) player.root.position.x = nextX;
-          else movementVelocity.x = 0;
-          if (!blocked(player.root.position.x, nextZ)) player.root.position.z = nextZ;
-          else movementVelocity.y = 0;
+          const move = resolvePlanarMove(
+            { x: px, z: pz },
+            { x: movementVelocity.x * speed, z: movementVelocity.y * speed },
+            COLLISION.radius * COLLISION.radiusScale,
+            ROOM_COLLIDERS
+          );
+          player.root.position.x = move.x;
+          player.root.position.z = move.z;
+          if (move.blockedX) movementVelocity.x = 0;
+          if (move.blockedZ) movementVelocity.y = 0;
           if (isMoving) {
             const desiredYaw = Math.atan2(movementVelocity.x, -movementVelocity.y);
             const yawDelta = THREE.MathUtils.euclideanModulo(desiredYaw - player.root.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
@@ -1299,13 +1335,22 @@ export function StudioScene({
         const cameraRange = cameraDistance;
         let safeCameraRange = cameraRange;
         if (!isConsolePlaying && now - lastCameraCollisionCheck > 80) {
-          cameraRay.set(cameraTarget, cameraDirection);
+          cameraTarget.set(
+            THREE.MathUtils.clamp(cameraTarget.x, CAMERA_LIMITS.minX, CAMERA_LIMITS.maxX),
+            THREE.MathUtils.clamp(cameraTarget.y, CAMERA_LIMITS.minY, CAMERA_LIMITS.maxY),
+            THREE.MathUtils.clamp(cameraTarget.z, CAMERA_LIMITS.minZ, CAMERA_LIMITS.maxZ)
+          );
+          headDirection.set(playerPosition.x, playerPosition.y + CAMERA_LIMITS.headOffset, playerPosition.z);
+          cameraRay.set(headDirection, cameraDirection);
           cameraRay.far = cameraRange;
           const obstruction = cameraRay.intersectObject(assembly.root, true).find((hit) => hit.distance > 0.25);
-          if (obstruction) safeCameraRange = Math.max(1.0, obstruction.distance - 0.18);
+          if (obstruction) safeCameraRange = Math.max(CAMERA_LIMITS.minObstructedDistance, obstruction.distance - CAMERA_LIMITS.obstructionMargin);
           lastCameraCollisionCheck = now;
         }
         cameraDesired.copy(cameraTarget).addScaledVector(cameraDirection, safeCameraRange);
+        cameraDesired.x = THREE.MathUtils.clamp(cameraDesired.x, CAMERA_LIMITS.minX, CAMERA_LIMITS.maxX);
+        cameraDesired.y = THREE.MathUtils.clamp(cameraDesired.y, CAMERA_LIMITS.minY, CAMERA_LIMITS.maxY);
+        cameraDesired.z = THREE.MathUtils.clamp(cameraDesired.z, CAMERA_LIMITS.minZ, CAMERA_LIMITS.maxZ);
         controls.target.lerp(cameraTarget, Math.min(1, dt * 9));
         camera.position.lerp(cameraDesired, Math.min(1, dt * 8));
         let nearest: THREE.Vector3 | null = null;
@@ -1727,7 +1772,12 @@ export function StudioScene({
       },
       interact,
       playConsole: () => {
-        if (walkingRef.current && isSitting && sittingOn === 'sofa') setConsoleGame(true);
+        if (walkingRef.current && isSitting && sittingOn === 'sofa') {
+          interaction.requestPlay(performance.now());
+          setConsoleGame(true);
+          interaction.confirm();
+          syncInteraction();
+        }
         else setGameToast('Assieds-toi sur le canapé pour jouer à la console.');
       },
       consoleAction,
@@ -1867,6 +1917,7 @@ export function StudioScene({
         </button>
         {walking && <>
           <div className="room-game-hint"><strong>{consolePlaying ? 'NEON DODGE' : 'Explore ta chambre'}</strong><span>{consolePlaying ? 'WASD / flèches pour esquiver · E pour arrêter · Espace pour le bouclier' : 'WASD / flèches · Shift pour courir · glisse pour tourner la caméra'}</span></div>
+          {FEATURE_FLAGS.ENABLE_DEBUG_STATE_OVERLAY && <output className="room-state-debug" aria-live="polite">{interactionState}</output>}
           {gamePrompt && <button type="button" className="room-game-action" onClick={() => apiRef.current?.interact()}>
             <kbd>E</kbd>{gamePrompt === 'desk'
               ? sitting ? 'Se relever' : 'S’asseoir au bureau'
