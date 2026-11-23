@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ControlDock } from './components/ControlDock';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { FastModePage } from './components/FastModePage';
+import { LoadingScreen } from './components/LoadingScreen';
+import { FEATURE_FLAGS } from './config/perf';
 import {
   CAMERA_PRESETS,
   CASES,
@@ -11,8 +15,12 @@ import {
   type ChassisFinish,
 } from './data/portfolio';
 import { computePose, type PortfolioMode, type PoseResult } from './lib/poseMath';
-import { StudioScene } from './three/StudioScene';
+import { detectDeviceTier } from './lib/perf';
 import type { PortfolioScreenView } from './three/screenPainter';
+
+const StudioScene = lazy(() =>
+  import('./three/StudioScene').then((mod) => ({ default: mod.StudioScene }))
+);
 
 interface GithubRepo {
   name: string;
@@ -95,6 +103,61 @@ export default function App() {
 
   modeRef.current = mode;
   caseIdxRef.current = caseIndex;
+
+  const deviceTier = useMemo(() => detectDeviceTier(), []);
+  const [fastMode, setFastMode] = useState(() => FEATURE_FLAGS.ENABLE_FAST_MODE && deviceTier.preferredFastMode);
+  const [bootProgress, setBootProgress] = useState(8);
+  const [bootDone, setBootDone] = useState(false);
+  const [gpuWarning, setGpuWarning] = useState(false);
+
+  const track = useCallback((event: string, meta?: Record<string, unknown>) => {
+    if (typeof console !== 'undefined') console.debug('[portfolio:event]', event, meta ?? {});
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const assets = [CFG.plate, CFG.cut];
+    let settled = 0;
+    const step = () => {
+      settled += 1;
+      if (alive) setBootProgress(Math.round((settled / assets.length) * 82) + 8);
+    };
+    for (const src of assets) {
+      const image = new Image();
+      image.onload = step;
+      image.onerror = step;
+      image.src = src;
+    }
+    const fontsReady = typeof document !== 'undefined' && 'fonts' in document
+      ? document.fonts.ready
+      : Promise.resolve();
+    const timeout = window.setTimeout(() => {
+      if (!alive) return;
+      setBootProgress(100);
+      window.setTimeout(() => {
+        if (alive) setBootDone(true);
+      }, 150);
+    }, 4000);
+    Promise.all([fontsReady]).then(() => {
+      if (!alive) return;
+      window.clearTimeout(timeout);
+      setBootProgress(100);
+      window.setTimeout(() => {
+        if (alive) setBootDone(true);
+      }, 200);
+    });
+    return () => {
+      alive = false;
+      window.clearTimeout(timeout);
+    };
+  }, []);
+
+  const enterFastMode = useCallback((reason: string) => {
+    if (!FEATURE_FLAGS.ENABLE_FAST_MODE) return;
+    track('fast_mode_enabled', { reason });
+    setGpuWarning(false);
+    setFastMode(true);
+  }, [track]);
 
   const updateLayout = useCallback((targetMode: PortfolioMode) => {
     const W = window.innerWidth;
@@ -379,27 +442,61 @@ export default function App() {
   const activeCase = CASES[caseIndex];
   const heroLayout = pose.heroLayout;
 
+  if (fastMode) {
+    return (
+      <>
+        <FastModePage
+          canEnter3D={deviceTier.webgl}
+          onEnter3D={() => {
+            track('enter_3d_requested', { from: 'fast' });
+            setFastMode(false);
+          }}
+          onTrack={track}
+        />
+        <LoadingScreen progress={bootProgress} done={bootDone} />
+      </>
+    );
+  }
+
   return (
     <>
+      <LoadingScreen progress={bootProgress} done={bootDone} />
       <div className={`stage ${pose.mobile ? 'mob' : ''} ${mode === 'case' ? 'm-case' : ''}`}>
         {/* 3D Interactive Studio Case Stage */}
         <div className={`studio-layer ${mode === 'case' ? 'is-visible' : ''}`}>
-          <StudioScene
-            active={mode === 'case'}
-            caseStudy={activeCase}
-            finish={finish}
-            preset={preset}
-            presetTick={presetTick}
-            swapTick={swapTick}
-            youtubeVideoId={activeYoutubeId}
-            portfolioView={immersivePortfolio ? catalogTab : null}
-            portfolioPage={portfolioPage}
-            repositories={githubRepos}
-            courses={tiktokVideos}
-            onCloseYoutube={() => setActiveYoutubeId(null)}
-            onGameInteract={() => enter3DView('projects')}
-            onScreenClick={() => immersivePortfolio ? setPortfolioPage((page) => page + 1) : nextCase()}
-          />
+          <ErrorBoundary
+            onError={() => enterFastMode('render-error')}
+            fallback={(reset) => (
+              <div className="gpu-fallback" role="alert">
+                <p>The 3D studio could not start on this device.</p>
+                <div>
+                  <button type="button" onClick={() => enterFastMode('error-boundary')}>Use Fast mode</button>
+                  <button type="button" onClick={reset}>Try again</button>
+                </div>
+              </div>
+            )}
+          >
+            <Suspense fallback={<div className="gpu-fallback" role="status">Loading 3D studio…</div>}>
+              <StudioScene
+                active={mode === 'case'}
+                caseStudy={activeCase}
+                finish={finish}
+                preset={preset}
+                presetTick={presetTick}
+                swapTick={swapTick}
+                youtubeVideoId={activeYoutubeId}
+                portfolioView={immersivePortfolio ? catalogTab : null}
+                portfolioPage={portfolioPage}
+                repositories={githubRepos}
+                courses={tiktokVideos}
+                onCloseYoutube={() => setActiveYoutubeId(null)}
+                onGameInteract={() => enter3DView('projects')}
+                onScreenClick={() => immersivePortfolio ? setPortfolioPage((page) => page + 1) : nextCase()}
+                onLowPerformance={() => enterFastMode('low-fps')}
+                onContextLost={() => setGpuWarning(true)}
+              />
+            </Suspense>
+          </ErrorBoundary>
         </div>
 
         {/* Hero 1440x810 Frame */}
@@ -571,6 +668,25 @@ export default function App() {
         <a className="tag t4" href={`mailto:${PROFILE.email}`}>
           hire me
         </a>
+
+        {FEATURE_FLAGS.ENABLE_FAST_MODE && (
+          <button
+            type="button"
+            className="fast-mode-toggle"
+            onClick={() => enterFastMode('user-toggle')}
+            title="Switch to the lightweight 2D version"
+          >
+            Fast mode
+          </button>
+        )}
+
+        {gpuWarning && (
+          <div className="gpu-warning" role="alert">
+            <span>Graphics context was lost.</span>
+            <button type="button" onClick={() => enterFastMode('context-lost')}>Switch to Fast mode</button>
+            <button type="button" onClick={() => setGpuWarning(false)} aria-label="Dismiss">×</button>
+          </div>
+        )}
 
         <button type="button" className="logo" id="lg2" onClick={toHero}>
           {PROFILE.wordmark}

@@ -11,6 +11,8 @@ import {
   type CaseStudy,
   type ChassisFinish,
 } from '../data/portfolio';
+import { PERF, FEATURE_FLAGS } from '../config/perf';
+import { FpsGuard, prefersReducedMotion } from '../lib/perf';
 import {
   computeQuadMatrix3d,
   dampValue,
@@ -312,6 +314,8 @@ interface StudioSceneProps {
   onCloseYoutube?: () => void;
   onGameInteract?: () => void;
   onScreenClick: () => void;
+  onLowPerformance?: () => void;
+  onContextLost?: () => void;
 }
 
 function getResponsivePreset(p: CameraPreset, aspect: number) {
@@ -350,6 +354,8 @@ export function StudioScene({
   onCloseYoutube,
   onGameInteract,
   onScreenClick,
+  onLowPerformance,
+  onContextLost,
 }: StudioSceneProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const videoOverlayRef = useRef<HTMLDivElement | null>(null);
@@ -369,6 +375,11 @@ export function StudioScene({
   const [avatarLoading, setAvatarLoading] = useState(false);
   const walkingRef = useRef(false);
   const onGameInteractRef = useRef(onGameInteract);
+  const onLowPerformanceRef = useRef(onLowPerformance);
+  const onContextLostRef = useRef(onContextLost);
+  const reducedMotionRef = useRef(prefersReducedMotion());
+  onLowPerformanceRef.current = onLowPerformance;
+  onContextLostRef.current = onContextLost;
 
   // Refs for imperatively syncing React props into the persistent WebGL scene
   const activeRef = useRef(active);
@@ -475,7 +486,7 @@ export function StudioScene({
       alpha: false,
       preserveDrawingBuffer: isSoftwareGl,
     });
-    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, PERF.maxDpr));
     renderer.setSize(width, height);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -528,7 +539,7 @@ export function StudioScene({
     keyLight.position.set(3.4, 5.1, 3.8);
     if (!isSoftwareGl) {
       keyLight.castShadow = true;
-      keyLight.shadow.mapSize.set(2048, 2048);
+      keyLight.shadow.mapSize.set(PERF.shadowMapSize, PERF.shadowMapSize);
       keyLight.shadow.camera.near = 1.0;
       keyLight.shadow.camera.far = 16.0;
       keyLight.shadow.camera.left = -4.5;
@@ -570,7 +581,9 @@ export function StudioScene({
     const screenCtx = screenCanvas.getContext('2d')!;
     const screenTexture = new THREE.CanvasTexture(screenCanvas);
     screenTexture.colorSpace = THREE.SRGBColorSpace;
-    screenTexture.anisotropy = isSoftwareGl ? 1 : renderer.capabilities.getMaxAnisotropy();
+    screenTexture.anisotropy = isSoftwareGl
+      ? PERF.maxAnisotropyLow
+      : Math.min(renderer.capabilities.getMaxAnisotropy(), PERF.maxAnisotropy);
 
     const drawCase = (elapsed: number, flash: number) => {
       screenCtx.save();
@@ -616,8 +629,16 @@ export function StudioScene({
     // Optional video texture if case.video URL is configured
     let activeVideo: HTMLVideoElement | null = null;
     let activeVideoTex: THREE.VideoTexture | null = null;
+    const handlePageVisibility = () => {
+      if (!activeVideo) return;
+      if (document.hidden) activeVideo.pause();
+      else activeVideo.play().catch(() => {});
+    };
+    document.addEventListener('visibilitychange', handlePageVisibility);
 
-    const maxAnisotropy = isSoftwareGl ? 1 : renderer.capabilities.getMaxAnisotropy();
+    const maxAnisotropy = isSoftwareGl
+      ? PERF.maxAnisotropyLow
+      : Math.min(renderer.capabilities.getMaxAnisotropy(), PERF.maxAnisotropy);
     const assembly = buildStudioShowcase(finishRef.current, screenTexture, maxAnisotropy);
     scene.add(assembly.root);
     logRoomScaleAudit(assembly.root);
@@ -625,8 +646,13 @@ export function StudioScene({
     assembly.root.traverse((object) => {
       if (object instanceof THREE.Mesh && object.name === 'wall-tablet-screen') tabletScreens.push(object);
     });
+    const tvScreenMesh = assembly.root.getObjectByName('bedroom-television-screen') as THREE.Mesh | undefined;
+    const tvGlowLight = assembly.root.getObjectByName('bedroom-tv-glow') as THREE.PointLight | undefined;
+    const bedsideLampLight = assembly.root.getObjectByName('bedside-lamp-light') as THREE.PointLight | undefined;
+    const bedsideLampBulb = assembly.root.getObjectByName('bedside-lamp-bulb') as THREE.Mesh | undefined;
 
     const player = createPlayerAvatar();
+    const avatarContactShadow = player.root.getObjectByName('avatar-contact-shadow') as THREE.Mesh | undefined;
     const floorY = WORLD_SCALE.floorY;
     player.root.position.set(0, floorY, 6.5);
     player.root.visible = false;
@@ -694,7 +720,7 @@ export function StudioScene({
           for (const material of meshMaterials) {
             const materialWithMaps = material as THREE.MeshStandardMaterial;
             for (const map of [materialWithMaps.map, materialWithMaps.normalMap, materialWithMaps.roughnessMap, materialWithMaps.metalnessMap]) {
-              if (map) map.anisotropy = renderer.capabilities.getMaxAnisotropy();
+              if (map) map.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), PERF.maxAnisotropy);
             }
             if (materialWithMaps.map) materialWithMaps.map.colorSpace = THREE.SRGBColorSpace;
           }
@@ -773,13 +799,12 @@ export function StudioScene({
       setConsolePlayingState(enabled);
       tvEnabled = true;
       setTvOn(true);
-      const screen = assembly.root.getObjectByName('bedroom-television-screen') as THREE.Mesh | undefined;
+      const screen = tvScreenMesh;
       const screenApi = screen?.userData;
       const setMode = screenApi?.setConsolePlaying as ((active: boolean) => void) | undefined;
       setMode?.(enabled);
       if (screen) screen.visible = true;
-      const tvLight = assembly.root.getObjectByName('bedroom-tv-glow') as THREE.PointLight | undefined;
-      if (tvLight) tvLight.intensity = 0.8;
+      if (tvGlowLight) tvGlowLight.intensity = 0.8;
       setGameToast(enabled ? 'Partie lancée ! Flèches ou A/D pour esquiver, E pour arrêter.' : 'Console en pause. E pour te relever.');
       window.clearTimeout(toastTimer);
       toastTimer = window.setTimeout(() => setGameToast(''), enabled ? 2800 : 1800);
@@ -791,13 +816,13 @@ export function StudioScene({
       const dx = normalized === 'a' || normalized === 'arrowleft' ? -1 : normalized === 'd' || normalized === 'arrowright' ? 1 : 0;
       const dy = normalized === 'w' || normalized === 'arrowup' ? -1 : normalized === 's' || normalized === 'arrowdown' ? 1 : 0;
       if (!dx && !dy) return;
-      const screen = assembly.root.getObjectByName('bedroom-television-screen') as THREE.Mesh | undefined;
+      const screen = tvScreenMesh;
       const move = screen?.userData.moveConsolePlayer as ((x: number, y: number) => void) | undefined;
       move?.(dx, dy);
       requestRender();
     };
     const consoleAction = () => {
-      const screen = assembly.root.getObjectByName('bedroom-television-screen') as THREE.Mesh | undefined;
+      const screen = tvScreenMesh;
       const action = screen?.userData.activateConsoleShield as (() => void) | undefined;
       action?.();
       requestRender();
@@ -958,8 +983,8 @@ export function StudioScene({
         toastTimer = window.setTimeout(() => setGameToast(''), 2200);
       } else if (lastGamePrompt === 'lamp') {
         lampEnabled = !lampEnabled;
-        const lamp = assembly.root.getObjectByName('bedside-lamp-light') as THREE.PointLight | undefined;
-        const bulb = assembly.root.getObjectByName('bedside-lamp-bulb') as THREE.Mesh | undefined;
+        const lamp = bedsideLampLight;
+        const bulb = bedsideLampBulb;
         if (lamp) lamp.intensity = lampEnabled ? 0.72 : 0;
         const bulbMaterial = bulb?.material as THREE.MeshStandardMaterial | undefined;
         if (bulbMaterial?.emissiveIntensity !== undefined) bulbMaterial.emissiveIntensity = lampEnabled ? 1.5 : 0;
@@ -984,8 +1009,8 @@ export function StudioScene({
       } else if (lastGamePrompt === 'tv') {
         tvEnabled = !tvEnabled;
         setTvOn(tvEnabled);
-        const screen = assembly.root.getObjectByName('bedroom-television-screen');
-        const tvLight = assembly.root.getObjectByName('bedroom-tv-glow') as THREE.PointLight | undefined;
+        const screen = tvScreenMesh;
+        const tvLight = tvGlowLight;
         if (screen) screen.visible = tvEnabled;
         if (tvLight) tvLight.intensity = tvEnabled ? 0.8 : 0;
         setGameToast(tvEnabled ? 'La télévision est allumée.' : 'La télévision est éteinte.');
@@ -1092,6 +1117,8 @@ export function StudioScene({
     let lastTime = performance.now();
     let lastScreenPaint = 0;
     let renderQueued = false;
+    let contextLost = false;
+    const fpsGuard = new FpsGuard();
 
     const gl = renderer.getContext();
     const isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext;
@@ -1126,13 +1153,14 @@ export function StudioScene({
     };
 
     const tick = () => {
-      if (disposed) return;
+      if (disposed || contextLost) return;
       renderQueued = false;
       if (!activeRef.current) return;
 
       const now = performance.now();
       const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
       lastTime = now;
+      const reducedMotion = reducedMotionRef.current;
 
       let needsMoreFrames = false;
 
@@ -1298,7 +1326,7 @@ export function StudioScene({
         player.spine.rotation.x = dampValue(player.spine.rotation.x, headPitch * 0.3, 5, dt);
         player.head.rotation.y = dampValue(player.head.rotation.y, headYaw * 0.7, 5, dt);
         player.head.rotation.x = dampValue(player.head.rotation.x, headPitch * 0.7, 5, dt);
-        player.torso.scale.y = 1 + Math.sin(now / 620) * 0.004;
+        player.torso.scale.y = reducedMotion ? 1 : 1 + Math.sin(now / 620) * 0.004;
         if (now >= nextBlinkAt) {
           blinkStartedAt = now;
           nextBlinkAt = now + 3200 + Math.random() * 2600;
@@ -1309,13 +1337,12 @@ export function StudioScene({
           eye.scale.y = 1.4 * eyeOpen;
           eye.position.x = (index === 0 ? -0.072 : 0.072) + headYaw * 0.01;
         }
-        const contactShadow = player.root.getObjectByName('avatar-contact-shadow') as THREE.Mesh | undefined;
-        if (contactShadow) {
-          contactShadow.visible = !isResting && !isSitting;
+        if (avatarContactShadow) {
+          avatarContactShadow.visible = !isResting && !isSitting;
           const jumpHeight = Math.max(0, player.root.position.y - floorY);
-          contactShadow.position.y = floorY - player.root.position.y + 0.012;
-          contactShadow.scale.setScalar(1 + jumpHeight * 0.28);
-          const shadowMaterial = contactShadow.material as THREE.MeshBasicMaterial;
+          avatarContactShadow.position.y = floorY - player.root.position.y + 0.012;
+          avatarContactShadow.scale.setScalar(1 + jumpHeight * 0.28);
+          const shadowMaterial = avatarContactShadow.material as THREE.MeshBasicMaterial;
           shadowMaterial.opacity = THREE.MathUtils.clamp(1 - jumpHeight * 0.65, 0.25, 1);
         }
         const stride = isMoving ? Math.sin(walkClock) * (pressedKeys.has('shift') ? 0.57 : 0.42) : 0;
@@ -1346,15 +1373,15 @@ export function StudioScene({
       }
 
       if (isConsolePlaying) {
-        const tvScreen = assembly.root.getObjectByName('bedroom-television-screen') as THREE.Mesh | undefined;
+        const tvScreen = tvScreenMesh;
         const updateGame = tvScreen?.userData.updateConsoleGame as ((delta: number) => void) | undefined;
         updateGame?.(dt);
         needsMoreFrames = true;
       }
 
-      // Damped camera preset glide (smooth 60fps on GPU; direct settle on software WebGL)
+      // Damped camera preset glide (smooth 60fps on GPU; direct settle on software WebGL / reduced motion)
       if (cameraAnimatingRef.current) {
-        if (isSoftwareGl) {
+        if (isSoftwareGl || reducedMotion) {
           camera.position.copy(camTargetPosRef.current);
           controls.target.copy(camTargetLookRef.current);
           cameraAnimatingRef.current = false;
@@ -1449,6 +1476,13 @@ export function StudioScene({
           renderQueued = true;
           afterDraw(tick);
         }
+        if (
+          FEATURE_FLAGS.ENABLE_AUTO_FAST_MODE &&
+          (walkingRef.current || isConsolePlaying) &&
+          fpsGuard.sample(now)
+        ) {
+          onLowPerformanceRef.current?.();
+        }
       }
     };
 
@@ -1458,6 +1492,25 @@ export function StudioScene({
       lastTime = performance.now();
       rafId = requestAnimationFrame(tick);
     };
+
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+      contextLost = true;
+      renderQueued = false;
+      cancelAnimationFrame(rafId);
+      onContextLostRef.current?.();
+    };
+    const handleContextRestored = () => {
+      contextLost = false;
+      fpsGuard.reset();
+      renderer.shadowMap.needsUpdate = true;
+      if (activeRef.current) {
+        handleResize();
+        requestRender();
+      }
+    };
+    renderer.domElement.addEventListener('webglcontextlost', handleContextLost);
+    renderer.domElement.addEventListener('webglcontextrestored', handleContextRestored);
 
     const handleControlStart = () => {
       cameraAnimatingRef.current = false;
@@ -1580,7 +1633,7 @@ export function StudioScene({
       camera.fov = asp < 1 ? Math.min(56, 36 / Math.pow(Math.max(0.4, asp), 0.48)) : 36;
       camera.aspect = asp;
       camera.updateProjectionMatrix();
-      renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, PERF.maxDpr));
       renderer.setSize(w, h);
       if (Math.abs(asp - lastAspect) > 0.12 && !walkingRef.current) {
         const resp = getResponsivePreset(presetRef.current, asp);
@@ -1690,6 +1743,7 @@ export function StudioScene({
       disposed = true;
       cancelAnimationFrame(rafId);
       window.removeEventListener('resize', handleResize);
+      document.removeEventListener('visibilitychange', handlePageVisibility);
       window.removeEventListener('keydown', handleGameKeyDown, true);
       window.removeEventListener('keyup', handleGameKeyUp, true);
       window.clearTimeout(toastTimer);
@@ -1705,6 +1759,8 @@ export function StudioScene({
       renderer.domElement.removeEventListener('pointerup', handleOrbitPointerUp);
       renderer.domElement.removeEventListener('pointercancel', handleOrbitPointerUp);
       renderer.domElement.removeEventListener('wheel', handleGameWheel);
+      renderer.domElement.removeEventListener('webglcontextlost', handleContextLost);
+      renderer.domElement.removeEventListener('webglcontextrestored', handleContextRestored);
       controls.dispose();
       cleanupVideo();
       screenTexture.dispose();
