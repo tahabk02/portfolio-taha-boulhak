@@ -64,3 +64,31 @@ Measured on the pre-change snapshot (`baseline: pre-audit snapshot`).
   `src/config/`.
 - Project names (`NUCLEUS 2BAC`, `MEDISAAS`, `TASK MANAGER`, `AI TRADING`, …)
   and technical terms stay untranslated by design.
+
+## AFTER (2026-11-23)
+
+Measured after phases 1–5. Build output is exact; browser and GPU values remain
+unavailable in this environment.
+
+| Metric | After | Change / notes |
+| --- | --- | --- |
+| Production build (Vite report) | 0.53 s | Baseline 1.39 s; wall time varies by host |
+| Initial JS (lazy studio not yet downloaded) | 275.44 kB (gzip 85.27 kB) | Split from the former single entry chunk |
+| Total JS after entering the 3D studio | 1,110.84 kB (gzip 306.58 kB) | Baseline 1,085.80 kB (gzip 297.90 kB); +25.04 kB raw / +8.68 kB gzip |
+| CSS bundle | 52.21 kB (gzip 12.50 kB) | Baseline 41.72 kB (gzip 10.26 kB) |
+| Draw calls / triangles | Not captured | `renderer.info` first-frame logging is available behind `FEATURE_FLAGS.ENABLE_RENDERER_INFO_LOG` |
+| Texture memory | Not captured | Renderer reports texture count only; GPU byte usage needs browser tooling |
+| FPS / load time | Not measurable here | Requires a browser session on target hardware and a throttled network profile |
+| Manual desktop/mobile/WebGL/game interaction checks | Not run | No browser/WebGL harness is available in this environment |
+
+### Remaining targets
+
+- The 3D scene still has many individual meshes; the under-200 draw-call target
+  was not demonstrated or optimized because merging room props risks changing
+  the existing composition and material behavior.
+- Stable 60 FPS and under-4-second fast-4G load time need measurement on the
+  target laptop and a browser network profile; the JavaScript is now split so
+  the 3D chunk is deferred until needed.
+- Zone glow highlights, full site-wide extraction of every string into
+  `copy.ts`, mobile viewport checks, WebGL loss/restore, and sit/game spam
+  checks remain for a browser validation pass.

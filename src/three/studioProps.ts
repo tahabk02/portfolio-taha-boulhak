@@ -1329,7 +1329,7 @@ export function buildGamingCorner(
   tvScreen.rotation.y = -Math.PI / 2;
   tvScreen.position.set(9.285, floorY + SCALE.television.centerHeight, 3.55);
   const arcadeCanvas = document.createElement('canvas');
-  arcadeCanvas.width = 960; arcadeCanvas.height = 540;
+  arcadeCanvas.width = NEON_DODGE.canvasWidthPx; arcadeCanvas.height = NEON_DODGE.canvasHeightPx;
   const arcadeCtx = arcadeCanvas.getContext('2d');
   const arcadeTexture = track.tex(new THREE.CanvasTexture(arcadeCanvas));
   arcadeTexture.colorSpace = THREE.SRGBColorSpace;
@@ -1338,20 +1338,20 @@ export function buildGamingCorner(
   const arcade = {
     active: false, gameOver: false, elapsed: 0, countdown: 0, accumulator: 0,
     playerX: 0.5, playerY: 0.8, shield: 0, recycleCount: 0,
-    hazards: Array.from({ length: NEON_DODGE.initialHazardCount }, (_, i) => ({ x: ((i * 37 + 13) % 91) / 100 + 0.04, y: -i * 83 - NEON_DODGE.hazardTopPaddingPx, speed: 150 + (i % 4) * 32, size: 12 + (i % 3) * 4 })),
+    hazards: Array.from({ length: NEON_DODGE.initialHazardCount }, (_, i) => ({ x: ((i * 37 + 13) % 91) / 100 + 0.04, y: -i * NEON_DODGE.hazardStartGapPx - NEON_DODGE.hazardTopPaddingPx, speed: NEON_DODGE.hazardSpeedBasePx + (i % 4) * NEON_DODGE.hazardSpeedStepPx, size: NEON_DODGE.hazardSizeBasePx + (i % 3) * NEON_DODGE.hazardSizeStepPx })),
   };
   const drawArcadeScreen = () => {
     if (!arcadeCtx) return;
     const ctx = arcadeCtx;
-    const bg = ctx.createLinearGradient(0, 0, 960, 540);
+    const bg = ctx.createLinearGradient(0, 0, NEON_DODGE.canvasWidthPx, NEON_DODGE.canvasHeightPx);
     bg.addColorStop(0, '#091424'); bg.addColorStop(0.55, '#111b39'); bg.addColorStop(1, '#25133f');
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, 960, 540);
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, NEON_DODGE.canvasWidthPx, NEON_DODGE.canvasHeightPx);
     ctx.strokeStyle = 'rgba(77, 230, 210, .13)'; ctx.lineWidth = 1;
-    for (let x = 0; x <= 960; x += 48) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 540); ctx.stroke(); }
-    for (let y = 0; y <= 540; y += 48) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(960, y); ctx.stroke(); }
+    for (let x = 0; x <= NEON_DODGE.canvasWidthPx; x += NEON_DODGE.gridStepPx) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, NEON_DODGE.canvasHeightPx); ctx.stroke(); }
+    for (let y = 0; y <= NEON_DODGE.canvasHeightPx; y += NEON_DODGE.gridStepPx) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(NEON_DODGE.canvasWidthPx, y); ctx.stroke(); }
     for (let i = 0; i < 76; i++) {
       ctx.fillStyle = i % 4 === 0 ? 'rgba(255, 98, 174, .72)' : 'rgba(226, 244, 255, .62)';
-      ctx.fillRect((i * 139) % 960, (i * 83) % 540, i % 4 === 0 ? 3 : 2, i % 4 === 0 ? 3 : 2);
+      ctx.fillRect((i * 139) % NEON_DODGE.canvasWidthPx, (i * 83) % NEON_DODGE.canvasHeightPx, i % 4 === 0 ? 3 : 2, i % 4 === 0 ? 3 : 2);
     }
     if (!arcade.active) {
       ctx.fillStyle = 'rgba(4, 11, 23, .77)'; ctx.fillRect(112, 74, 736, 392);
@@ -1370,13 +1370,13 @@ export function buildGamingCorner(
       ctx.textAlign = 'right'; ctx.fillStyle = '#65ffe2'; ctx.fillText(`SCORE ${Math.floor(arcade.elapsed * 10)} · BEST ${neonDodgeBestScore}`, 910, 55);
       ctx.textAlign = 'center';
       for (const hazard of arcade.hazards) {
-        const x = hazard.x * 960, y = hazard.y;
+        const x = hazard.x * NEON_DODGE.canvasWidthPx, y = hazard.y;
         ctx.save(); ctx.translate(x, y); ctx.rotate(arcade.elapsed * 0.8);
         ctx.shadowColor = '#ff55a7'; ctx.shadowBlur = 18; ctx.fillStyle = '#ff58ad';
         ctx.fillRect(-hazard.size, -hazard.size, hazard.size * 2, hazard.size * 2);
         ctx.shadowBlur = 0; ctx.fillStyle = '#ffe6f3'; ctx.fillRect(-4, -4, 8, 8); ctx.restore();
       }
-      const px = arcade.playerX * 960, py = arcade.playerY * 540;
+      const px = arcade.playerX * NEON_DODGE.canvasWidthPx, py = arcade.playerY * NEON_DODGE.canvasHeightPx;
       ctx.save(); ctx.translate(px, py); ctx.shadowColor = arcade.shield > 0 ? '#ffd866' : '#50f4df'; ctx.shadowBlur = 24;
       ctx.fillStyle = arcade.shield > 0 ? '#ffdb71' : '#54f5e0';
       ctx.beginPath(); ctx.moveTo(0, -27); ctx.lineTo(22, 22); ctx.lineTo(0, 14); ctx.lineTo(-22, 22); ctx.closePath(); ctx.fill();
@@ -1395,7 +1395,7 @@ export function buildGamingCorner(
     arcade.countdown = active ? NEON_DODGE.startCountdownSeconds : 0;
     arcade.accumulator = 0; arcade.recycleCount = 0;
     arcade.playerX = 0.5; arcade.playerY = 0.8; arcade.shield = 0;
-    arcade.hazards.forEach((hazard, i) => { hazard.x = ((i * 37 + 13) % 91) / 100 + 0.04; hazard.y = -i * 83 - NEON_DODGE.hazardTopPaddingPx; });
+    arcade.hazards.forEach((hazard, i) => { hazard.x = ((i * 37 + 13) % 91) / 100 + 0.04; hazard.y = -i * NEON_DODGE.hazardStartGapPx - NEON_DODGE.hazardTopPaddingPx; });
     drawArcadeScreen();
   };
   const moveConsolePlayer = (dx: number, dy: number) => {
@@ -1415,13 +1415,13 @@ export function buildGamingCorner(
       if (arcade.countdown > 0) { arcade.countdown = Math.max(0, arcade.countdown - step); continue; }
       arcade.elapsed += step;
       arcade.shield = Math.max(0, arcade.shield - step);
-      const px = arcade.playerX * 960, py = arcade.playerY * 540;
+      const px = arcade.playerX * NEON_DODGE.canvasWidthPx, py = arcade.playerY * NEON_DODGE.canvasHeightPx;
       for (const hazard of arcade.hazards) {
         hazard.y += hazard.speed * step;
-        if (hazard.y > 570) {
+        if (hazard.y > NEON_DODGE.hazardRecycleBottomPx) {
           const spawn = arcade.recycleCount++;
-          hazard.y = -NEON_DODGE.hazardTopPaddingPx - ((spawn * 67 + 29) % NEON_DODGE.hazardRecycleRangePx);
-          hazard.x = 0.05 + ((spawn * 43 + 17) % 90) / 100;
+          hazard.y = -NEON_DODGE.hazardTopPaddingPx - ((spawn * NEON_DODGE.hazardRecycleIndexStep + NEON_DODGE.hazardRecycleOffset) % NEON_DODGE.hazardRecycleRangePx);
+          hazard.x = 0.05 + ((spawn * NEON_DODGE.hazardLaneIndexStep + NEON_DODGE.hazardLaneOffset) % 90) / 100;
         }
         if (arcade.shield <= 0 && Math.hypot(hazard.x * 960 - px, hazard.y - py) < hazard.size + NEON_DODGE.playerCollisionRadiusPx) {
           arcade.active = false; arcade.gameOver = true;

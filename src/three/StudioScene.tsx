@@ -786,6 +786,7 @@ export function StudioScene({
     let cameraYaw = 0.34;
     let cameraPitch = 0.025;
     let cameraDistance: number = SCALE.thirdPersonCamera.distance;
+    let safeCameraRange = cameraDistance;
     let orbitPointer: { id: number; x: number; y: number } | null = null;
     let lastCameraCollisionCheck = 0;
     let nextBlinkAt = performance.now() + 3200 + Math.random() * 2600;
@@ -1205,6 +1206,7 @@ export function StudioScene({
     let lastScreenPaint = 0;
     let renderQueued = false;
     let contextLost = false;
+    let rendererInfoLogged = false;
     const fpsGuard = new FpsGuard();
 
     const gl = renderer.getContext();
@@ -1372,7 +1374,7 @@ export function StudioScene({
           Math.cos(cameraYaw) * Math.cos(cameraPitch)
         ).normalize();
         const cameraRange = cameraDistance;
-        let safeCameraRange = cameraRange;
+        safeCameraRange = Math.min(safeCameraRange, cameraRange);
         if (!isConsolePlaying && now - lastCameraCollisionCheck > 80) {
           cameraTarget.set(
             THREE.MathUtils.clamp(cameraTarget.x, CAMERA_LIMITS.minX, CAMERA_LIMITS.maxX),
@@ -1383,7 +1385,9 @@ export function StudioScene({
           cameraRay.set(headDirection, cameraDirection);
           cameraRay.far = cameraRange;
           const obstruction = cameraRay.intersectObject(assembly.root, true).find((hit) => hit.distance > 0.25);
-          if (obstruction) safeCameraRange = Math.max(CAMERA_LIMITS.minObstructedDistance, obstruction.distance - CAMERA_LIMITS.obstructionMargin);
+          safeCameraRange = obstruction
+            ? Math.max(CAMERA_LIMITS.minObstructedDistance, obstruction.distance - CAMERA_LIMITS.obstructionMargin)
+            : cameraRange;
           lastCameraCollisionCheck = now;
         }
         cameraDesired.copy(cameraTarget).addScaledVector(cameraDirection, safeCameraRange);
@@ -1560,6 +1564,17 @@ export function StudioScene({
         needsMoreFrames = true;
       }
       renderer.render(scene, camera);
+      if (import.meta.env.DEV && FEATURE_FLAGS.ENABLE_RENDERER_INFO_LOG && !rendererInfoLogged) {
+        rendererInfoLogged = true;
+        console.info('[portfolio:renderer.info]', {
+          drawCalls: renderer.info.render.calls,
+          triangles: renderer.info.render.triangles,
+          points: renderer.info.render.points,
+          lines: renderer.info.render.lines,
+          geometries: renderer.info.memory.geometries,
+          textures: renderer.info.memory.textures,
+        });
+      }
       syncYoutubeOverlay();
 
       if (needsMoreFrames) {
@@ -1963,7 +1978,7 @@ export function StudioScene({
           {walking ? copy.leaveRoom : copy.exploreRoom}
         </button>
         {walking && <>
-          <div className="room-game-hint"><strong>{consolePlaying ? 'NEON DODGE' : (lang === 'fr' ? 'Explore ta chambre' : 'Explore the room')}</strong><span>{copy.controls}</span></div>
+          <div className="room-game-hint"><strong>{consolePlaying ? 'NEON DODGE' : copy.exploreRoom}</strong><span>{consolePlaying ? copy.gameControls : copy.controls}</span></div>
           {FEATURE_FLAGS.ENABLE_DEBUG_STATE_OVERLAY && <output className="room-state-debug" aria-live="polite">{interactionState}</output>}
           {gamePrompt && <button type="button" className="room-game-action" onClick={() => apiRef.current?.interact()}>
             <kbd>E</kbd>{gamePrompt === 'desk'
@@ -1975,13 +1990,13 @@ export function StudioScene({
                 : gamePrompt === 'podcast'
                   ? sitting ? copy.stand : copy.sitPodcast
                 : gamePrompt === 'gym'
-                  ? 'Commencer une séance'
+                  ? copy.startWorkout
                 : gamePrompt === 'lamp'
-                ? `${gameToast.includes('éteinte') ? 'Rallumer' : 'Éteindre'} la lampe`
+                ? copy.toggleLamp
                 : gamePrompt === 'door'
-                  ? 'Quitter la chambre'
+                  ? copy.leaveRoom
                 : gamePrompt === 'tv'
-                  ? `${tvOn ? 'Éteindre' : 'Allumer'} la télévision`
+                  ? tvOn ? copy.turnOff : copy.turnOn
                   : resting ? 'Se relever' : 'S’allonger sur le lit'}
           </button>}
           {sitting && (gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && <section className="room-desk-workspace" aria-label="Espace de travail du personnage">
@@ -2013,15 +2028,15 @@ export function StudioScene({
               <div className="room-desk-code-status"><span>●</span> Le code apparaît sur l’écran du bureau · {deskCode.split('\n').length} lignes</div>
             </div>}
           </section>}
-          {sitting && gamePrompt === 'sofa' && !consolePlaying && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.playConsole()}>Jouer à la console</button>}
+          {sitting && gamePrompt === 'sofa' && !consolePlaying && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.playConsole()}>{copy.playConsole}</button>}
           {sitting && !consolePlaying && gamePrompt !== 'sofa' && !((gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && deskMode) && <button type="button" className="room-game-secondary" onClick={() => { apiRef.current?.setWalking(false); onGameInteractRef.current?.(); }}>Voir le portfolio</button>}
           {consolePlaying && <>
             {consoleGameOver && <section className="room-console-game-over" role="status">
-              <strong>NEON DODGE · GAME OVER</strong>
-              <span>Score {consoleScore} · Best {consoleBestScore}</span>
-              <span>Space / Enter to restart · E to exit</span>
-              <button type="button" onClick={() => apiRef.current?.restartConsoleGame()}>Restart</button>
-              <button type="button" onClick={() => apiRef.current?.interact()}>Exit game</button>
+              <strong>{copy.gameOverTitle}</strong>
+              <span>{copy.score} {consoleScore} · {copy.best} {consoleBestScore}</span>
+              <span>{copy.restartKeys}</span>
+              <button type="button" onClick={() => apiRef.current?.restartConsoleGame()}>{copy.restart}</button>
+              <button type="button" onClick={() => apiRef.current?.interact()}>{copy.exitGame}</button>
             </section>}
             {!consoleGameOver && <div className="room-game-console-controls" aria-label="NEON DODGE touch controls">
               <button type="button" aria-label="Move left" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.moveKey('a', true); }}>←</button>

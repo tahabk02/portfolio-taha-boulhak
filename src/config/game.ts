@@ -1,5 +1,18 @@
 /** NEON DODGE simulation values; screen-space values are pixels, not room units. */
 export const NEON_DODGE = {
+  canvasWidthPx: 960,
+  canvasHeightPx: 540,
+  gridStepPx: 48,
+  hazardStartGapPx: 83,
+  hazardSpeedBasePx: 150,
+  hazardSpeedStepPx: 32,
+  hazardSizeBasePx: 12,
+  hazardSizeStepPx: 4,
+  hazardRecycleBottomPx: 570,
+  hazardRecycleIndexStep: 67,
+  hazardRecycleOffset: 29,
+  hazardLaneIndexStep: 43,
+  hazardLaneOffset: 17,
   fixedStepSeconds: 1 / 60,
   maxFrameDeltaSeconds: 0.1,
   maxCatchUpSteps: 5,
