@@ -1,8 +1,160 @@
 import * as THREE from 'three';
 import { CASES, PROFILE, YOUTUBE_VIDEOS, type CaseStudy } from '../data/portfolio';
 
-export type PortfolioScreenView = 'projects' | 'repositories' | 'courses' | 'about' | 'skills' | 'contact';
-export interface ScreenRepository { name: string; description: string | null; language: string | null; stargazers_count: number; }
+export type PortfolioScreenView = 'projects' | 'repositories' | 'github' | 'courses' | 'about' | 'skills' | 'contact';
+export interface ScreenRepository {
+  name: string; description: string | null; language: string | null; stargazers_count: number;
+  forks_count?: number; html_url?: string; updated_at?: string; fork?: boolean;
+}
+export interface ScreenGithubProfile {
+  login: string; name: string | null; bio: string | null; location: string | null;
+  html_url: string; avatar_url: string; public_repos: number; followers: number;
+  following: number; public_gists: number; created_at: string;
+}
+
+const GITHUB_LANG_COLORS: Record<string, string> = {
+  TypeScript: '#3178c6', JavaScript: '#f1e05a', Python: '#3572a5', Java: '#b07219',
+  HTML: '#e34c26', CSS: '#663399', Go: '#00add8', Rust: '#dea584', PHP: '#4f5d95',
+  Dart: '#00b4ab', C: '#555555', 'C++': '#f34b7d', Shell: '#89e051', Ruby: '#701516',
+};
+
+/** Paint an accurate live GitHub profile dashboard for both the 3D wall and studio screen. */
+export function paintGithubDashboard(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  profile: ScreenGithubProfile | null,
+  repositories: ScreenRepository[],
+  loading = false,
+  error = '',
+  page = 0
+) {
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, '#07130f'); bg.addColorStop(1, '#10251d');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#101b16'; ctx.fillRect(0, 0, w, 62);
+  ctx.fillStyle = '#d7ff56'; ctx.beginPath(); ctx.arc(38, 31, 17, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#102018'; ctx.font = '900 22px Arial'; ctx.textAlign = 'center'; ctx.fillText('GH', 38, 39); ctx.textAlign = 'left';
+  ctx.fillStyle = '#eff6f0'; ctx.font = '800 22px Arial'; ctx.fillText('GITHUB  /  LIVE PROFILE', 66, 30);
+  ctx.fillStyle = '#95a99a'; ctx.font = '12px ui-monospace,monospace'; ctx.fillText('PUBLIC ACCOUNT DATA', 66, 48);
+  ctx.textAlign = 'right'; ctx.fillStyle = '#d7ff56'; ctx.fillText('github.com/tahabk02', w - 24, 34);
+  ctx.fillStyle = error ? '#ffad9c' : loading ? '#d7ff56' : '#88d8a7'; ctx.font = '10px ui-monospace,monospace';
+  ctx.fillText(error ? 'API LIMITED' : loading ? 'SYNCING' : 'LIVE SNAPSHOT', w - 24, 51); ctx.textAlign = 'left';
+  ctx.fillStyle = '#91a99a'; ctx.font = '10px ui-monospace,monospace'; ctx.fillText(`PAGE ${String((page % 3) + 1).padStart(2, '0')} / 03  \u00b7  WHEEL OR SWIPE UP / DOWN`, 24, h - 8);
+
+  const card = (x: number, y: number, cw: number, ch: number) => {
+    ctx.fillStyle = 'rgba(18,34,26,.92)'; ctx.strokeStyle = 'rgba(201,225,207,.15)'; ctx.lineWidth = 1;
+    roundRectPath(ctx, x, y, cw, ch, 11); ctx.fill(); ctx.stroke();
+  };
+
+  if (page % 3 === 1) {
+    ctx.fillStyle = '#f2f5ee'; ctx.font = '800 28px Arial'; ctx.fillText('PUBLIC REPOSITORIES', 28, 112);
+    ctx.fillStyle = '#9fb6a5'; ctx.font = '13px ui-monospace,monospace'; ctx.fillText('LIVE FROM GITHUB  /  SORTED BY STARS', 30, 138);
+    const rows = [...repositories].sort((a, b) => b.stargazers_count - a.stargazers_count).slice(0, 5);
+    if (loading && !rows.length) { ctx.fillStyle = '#cbdacf'; ctx.font = '15px Arial'; ctx.fillText('Loading repositories...', 30, 190); }
+    else rows.forEach((repo, i) => {
+      const y = 164 + i * 103;
+      card(24, y, w - 48, 88);
+      ctx.fillStyle = '#d7ff56'; ctx.font = '700 17px ui-monospace,monospace'; ctx.fillText(repo.name.slice(0, 42), 44, y + 25);
+      ctx.fillStyle = '#d9e4dc'; ctx.font = '12px Arial'; ctx.fillText((repo.description || 'Public source repository').slice(0, 110), 44, y + 48);
+      ctx.fillStyle = '#9fb6a5'; ctx.font = '11px ui-monospace,monospace'; ctx.fillText(`${repo.language || 'Code'}  /  ${repo.stargazers_count} stars  /  ${repo.forks_count || 0} forks`, 44, y + 70);
+    });
+    if (!rows.length && !loading) { ctx.fillStyle = '#ffad9c'; ctx.font = '13px Arial'; ctx.fillText(error || 'No public repositories are available.', 30, 190); }
+    return;
+  }
+  if (page % 3 === 2) {
+    ctx.fillStyle = '#d7ff56'; ctx.font = '800 11px ui-monospace,monospace'; ctx.fillText('PROFILE README  /  ABOUT', 28, 95);
+    ctx.fillStyle = '#f2f5ee'; ctx.font = '800 30px Arial'; ctx.fillText(profile?.name || 'Taha Boulhak', 28, 137);
+    ctx.fillStyle = '#9fb6a5'; ctx.font = '14px ui-monospace,monospace'; ctx.fillText(`@${profile?.login || 'tahabk02'}  /  ${profile?.location || 'Casablanca, Morocco'}`, 30, 163);
+    ctx.fillStyle = '#d9e4dc'; ctx.font = '15px Arial';
+    ctx.fillText((profile?.bio || 'Full-stack developer building useful digital experiences.').slice(0, 104), 30, 202);
+    const roles = ['FULL-STACK DEVELOPMENT', 'CLOUD ARCHITECTURE', 'DEVOPS', 'TECH EDUCATION'];
+    roles.forEach((label, i) => { const x = 30 + (i % 2) * 590; const y = 244 + Math.floor(i / 2) * 53; card(x, y, 560, 40); ctx.fillStyle = '#d7ff56'; ctx.font = '700 13px ui-monospace,monospace'; ctx.fillText(label, x + 14, y + 25); });
+    ctx.fillStyle = '#f2f5ee'; ctx.font = '800 14px Arial'; ctx.fillText('PROFILE STACK', 30, 370);
+    const stack = ['React', 'TypeScript', 'Node.js', 'Python', 'Three.js', 'MongoDB', 'Express', 'FastAPI', 'Tailwind CSS', 'Stripe', 'Flask', 'SQLite'];
+    stack.forEach((label, i) => { const x = 30 + (i % 6) * 208; const y = 389 + Math.floor(i / 6) * 40; ctx.fillStyle = 'rgba(215,255,86,.08)'; ctx.strokeStyle = 'rgba(215,255,86,.22)'; roundRectPath(ctx, x, y, 190, 30, 7); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#cbdacf'; ctx.font = '11px ui-monospace,monospace'; ctx.fillText(label, x + 10, y + 19); });
+    ctx.fillStyle = '#9fb6a5'; ctx.font = '12px ui-monospace,monospace'; ctx.fillText(`LANGUAGES  /  ARABIC  \u00b7  FRENCH  \u00b7  ENGLISH`, 30, 499);
+    ctx.fillStyle = '#d7ff56'; ctx.font = '700 14px ui-monospace,monospace'; ctx.fillText('GITHUB.COM/TAHABK02  ->  PROFILE + ALL REPOSITORIES', 30, 540);
+    return;
+  }
+
+  const margin = 22;
+  const profileX = margin; const profileY = 80; const profileW = Math.round(w * 0.36); const profileH = 178;
+  card(profileX, profileY, profileW, profileH);
+  ctx.fillStyle = '#d7ff56'; ctx.font = '800 10px ui-monospace,monospace'; ctx.fillText('DEVELOPER PROFILE', profileX + 18, profileY + 25);
+  ctx.fillStyle = '#f1f5ef'; ctx.font = '800 24px Arial'; ctx.fillText((profile?.name || 'Taha Boulhak').slice(0, 22), profileX + 18, profileY + 63);
+  ctx.fillStyle = '#9fb6a5'; ctx.font = '14px ui-monospace,monospace'; ctx.fillText(`@${profile?.login || 'tahabk02'}`, profileX + 18, profileY + 86);
+  ctx.fillStyle = '#d9e4dc'; ctx.font = '13px Arial';
+  const bio = profile?.bio || 'Full-stack developer building useful web experiences.';
+  ctx.fillText(bio.slice(0, 48), profileX + 18, profileY + 116);
+  ctx.fillStyle = '#9fb6a5'; ctx.font = '12px Arial';
+  ctx.fillText([profile?.location || 'Casablanca, Morocco', profile ? `Joined ${new Date(profile.created_at).getFullYear()}` : 'Public profile'].join('  /  '), profileX + 18, profileY + 145);
+  ctx.fillStyle = '#d7ff56'; ctx.font = '700 11px ui-monospace,monospace'; ctx.fillText('PROFILE  /  @TAHABK02', profileX + 18, profileY + 166);
+
+  const metrics = [
+    ['REPOSITORIES', profile ? String(profile.public_repos) : repositories.length ? String(repositories.length) : loading || error ? '--' : '0'],
+    ['FOLLOWERS', profile ? String(profile.followers) : '--'],
+    ['FOLLOWING', profile ? String(profile.following) : '--'],
+    ['PUBLIC GISTS', profile ? String(profile.public_gists) : '--'],
+  ];
+  const metricX = profileX + profileW + 14; const metricW = (w - metricX - margin - 18) / 2; const metricH = 78;
+  metrics.forEach(([label, value], i) => {
+    const x = metricX + (i % 2) * (metricW + 10); const y = profileY + Math.floor(i / 2) * (metricH + 12);
+    card(x, y, metricW, metricH);
+    ctx.fillStyle = '#91a99a'; ctx.font = '10px ui-monospace,monospace'; ctx.fillText(label, x + 14, y + 25);
+    ctx.fillStyle = '#f2f5ee'; ctx.font = '800 27px Arial'; ctx.fillText(value, x + 14, y + 59);
+  });
+
+  const lowerY = profileY + profileH + 14; const lowerH = h - lowerY - 22;
+  const leftW = Math.round(w * 0.35); card(margin, lowerY, leftW, lowerH);
+  ctx.fillStyle = '#f2f5ee'; ctx.font = '800 15px Arial'; ctx.fillText('LANGUAGES', margin + 16, lowerY + 26);
+  const languageCounts = new Map<string, number>();
+  repositories.filter((repo) => !repo.fork && repo.language).forEach((repo) => languageCounts.set(repo.language!, (languageCounts.get(repo.language!) || 0) + 1));
+  const languageRows = [...languageCounts].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (!languageRows.length) {
+    ctx.fillStyle = '#9fb6a5'; ctx.font = '12px Arial'; ctx.fillText(loading ? 'Loading repositories...' : 'No language data yet', margin + 16, lowerY + 60);
+  } else {
+    const total = languageRows.reduce((sum, [, count]) => sum + count, 0);
+    const barX = margin + 16; const barY = lowerY + 48; const barW = leftW - 32; let offset = 0;
+    languageRows.forEach(([name, count]) => {
+      const segment = barW * count / total; ctx.fillStyle = GITHUB_LANG_COLORS[name] || '#8cbf9e';
+      ctx.fillRect(barX + offset, barY, segment, 8); offset += segment;
+    });
+    languageRows.forEach(([name, count], i) => {
+      const y = lowerY + 82 + i * 22; ctx.fillStyle = GITHUB_LANG_COLORS[name] || '#8cbf9e'; ctx.beginPath(); ctx.arc(margin + 20, y - 4, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#d9e4dc'; ctx.font = '12px Arial'; ctx.fillText(name, margin + 32, y);
+      ctx.textAlign = 'right'; ctx.fillStyle = '#91a99a'; ctx.fillText(`${count} repos`, margin + leftW - 14, y); ctx.textAlign = 'left';
+    });
+  }
+  ctx.fillStyle = '#f2f5ee'; ctx.font = '800 12px Arial'; ctx.fillText('PROFILE STACK', margin + 16, lowerY + lowerH - 112);
+  const stack = ['React', 'TypeScript', 'Node.js', 'Python', 'Three.js', 'MongoDB', 'Express', 'FastAPI', 'Tailwind', 'Stripe', 'Flask', 'SQLite'];
+  stack.forEach((label, i) => {
+    const col = i % 3; const row = Math.floor(i / 3); const chipW = Math.floor((leftW - 44) / 3); const x = margin + 16 + col * (chipW + 5); const y = lowerY + lowerH - 94 + row * 23;
+    ctx.fillStyle = 'rgba(215,255,86,.08)'; ctx.strokeStyle = 'rgba(215,255,86,.2)'; roundRectPath(ctx, x, y, chipW, 18, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#cbdacf'; ctx.font = '10px ui-monospace,monospace'; ctx.fillText(label, x + 7, y + 12);
+  });
+
+  const rightX = margin + leftW + 14; const rightW = w - rightX - margin; card(rightX, lowerY, rightW, lowerH);
+  ctx.fillStyle = '#f2f5ee'; ctx.font = '800 15px Arial'; ctx.fillText('FEATURED REPOSITORIES', rightX + 16, lowerY + 26);
+  const featured = [...repositories].sort((a, b) => b.stargazers_count - a.stargazers_count || Date.parse(b.updated_at || '') - Date.parse(a.updated_at || '')).slice(0, 3);
+  if (loading && !featured.length) {
+    ctx.fillStyle = '#9fb6a5'; ctx.font = '13px Arial'; ctx.fillText('Loading public repositories...', rightX + 16, lowerY + 58);
+  } else if (error && !featured.length) {
+    ctx.fillStyle = '#ffb4a8'; ctx.font = '12px Arial'; ctx.fillText('GitHub is temporarily unavailable. Open the profile link above.', rightX + 16, lowerY + 58);
+  } else if (!featured.length) {
+    ctx.fillStyle = '#9fb6a5'; ctx.font = '12px Arial'; ctx.fillText('No public repositories returned.', rightX + 16, lowerY + 58);
+  } else {
+    featured.forEach((repo, i) => {
+      const y = lowerY + 54 + i * Math.floor((lowerH - 62) / 3);
+      if (i) { ctx.strokeStyle = 'rgba(201,225,207,.1)'; ctx.beginPath(); ctx.moveTo(rightX + 16, y - 12); ctx.lineTo(rightX + rightW - 16, y - 12); ctx.stroke(); }
+      ctx.fillStyle = '#d7ff56'; ctx.font = '700 13px ui-monospace,monospace'; ctx.fillText(repo.name.slice(0, 27), rightX + 16, y + 1);
+      ctx.fillStyle = '#9fb6a5'; ctx.font = '11px Arial'; ctx.fillText(`${repo.language || 'Code'}  /  ${repo.stargazers_count} stars  /  ${repo.forks_count || 0} forks`, rightX + 16, y + 20);
+      ctx.fillStyle = '#d9e4dc'; ctx.font = '11px Arial'; ctx.fillText((repo.description || 'Public repository').slice(0, 72), rightX + 16, y + 37);
+    });
+  }
+  if (loading && profile) { ctx.fillStyle = '#d7ff56'; ctx.font = '10px ui-monospace,monospace'; ctx.textAlign = 'right'; ctx.fillText('SYNCING', w - margin, h - 7); ctx.textAlign = 'left'; }
+}
+
 export interface ScreenCourse { title?: string; video_description?: string; }
 
 function roundRectPath(
@@ -275,7 +427,11 @@ export function paintPortfolioScreen(
   page: number,
   repositories: ScreenRepository[],
   courses: ScreenCourse[],
-  photos: Map<string, HTMLImageElement>
+  photos: Map<string, HTMLImageElement>,
+  githubProfile: ScreenGithubProfile | null = null,
+  githubLoading = false,
+  githubError = '',
+  githubPage = 0
 ) {
   const bg = ctx.createLinearGradient(0, 0, w, h);
   bg.addColorStop(0, '#071711');
@@ -301,6 +457,7 @@ export function paintPortfolioScreen(
   const heading: Record<PortfolioScreenView, [string, string]> = {
     projects: ['Selected projects', 'REAL BUILDS  /  LIVE LINKS AND REPOSITORIES'],
     repositories: ['GitHub repositories', `${repositories.length} PUBLIC REPOSITORIES  /  SORTED BY RECENT ACTIVITY`],
+    github: ['GitHub dashboard', 'LIVE PUBLIC PROFILE  /  REPOSITORIES  /  LANGUAGE SNAPSHOT'],
     courses: ['Courses & videos', 'LEARN BY BUILDING  /  PROJECT WALKTHROUGHS'],
     about: ['Taha Boulhak', 'FULL STACK DEVELOPER  /  BUILDING USEFUL DIGITAL EXPERIENCES'],
     skills: ['Tools & skills', 'A PRACTICAL TOOLKIT USED ACROSS THE PORTFOLIO'],
@@ -358,6 +515,8 @@ export function paintPortfolioScreen(
       ctx.fillStyle = '#d8eee1'; ctx.font = '600 24px "Inter Tight",system-ui,sans-serif';
       ctx.fillText('Open the full GitHub archive to load the live repository list.', 58, 248);
     }
+  } else if (view === 'github') {
+    paintGithubDashboard(ctx, w, h, githubProfile, repositories, githubLoading, githubError, githubPage);
   } else if (view === 'courses') {
     YOUTUBE_VIDEOS.forEach((video, i) => {
       const x = 54 + i * 445;

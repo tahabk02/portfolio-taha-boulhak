@@ -35,6 +35,20 @@ interface GithubRepo {
   fork: boolean;
 }
 
+interface GithubProfile {
+  login: string;
+  name: string | null;
+  bio: string | null;
+  location: string | null;
+  html_url: string;
+  avatar_url: string;
+  public_repos: number;
+  followers: number;
+  following: number;
+  public_gists: number;
+  created_at: string;
+}
+
 interface TikTokVideo {
   id: string;
   title?: string;
@@ -61,9 +75,13 @@ export default function App() {
   const [caseVisible, setCaseVisible] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tiktok') === 'connected');
-  const [catalogTab, setCatalogTab] = useState<'projects' | 'repositories' | 'courses' | 'about' | 'skills' | 'contact'>(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tiktok') === 'connected' ? 'courses' : 'projects');
+  const [catalogTab, setCatalogTab] = useState<'projects' | 'repositories' | 'github' | 'courses' | 'about' | 'skills' | 'contact'>(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tiktok') === 'connected' ? 'courses' : 'projects');
   const [githubRepos, setGithubRepos] = useState<GithubRepo[]>([]);
+  const [reposLoaded, setReposLoaded] = useState(false);
   const [reposLoading, setReposLoading] = useState(false);
+  const [githubProfile, setGithubProfile] = useState<GithubProfile | null>(null);
+  const [githubProfileLoading, setGithubProfileLoading] = useState(false);
+  const [githubProfileError, setGithubProfileError] = useState('');
   const [reposError, setReposError] = useState('');
   const [tiktokConfigured, setTiktokConfigured] = useState(false);
   const [tiktokConnected, setTiktokConnected] = useState(false);
@@ -207,7 +225,7 @@ export default function App() {
   }, [immersivePortfolio]);
 
   useEffect(() => {
-    if (!(projectsOpen || immersivePortfolio) || catalogTab !== 'repositories' || githubRepos.length) return;
+    if ((mode !== 'case' && !projectsOpen && !immersivePortfolio) || reposLoaded) return;
     const controller = new AbortController();
     setReposLoading(true);
     setReposError('');
@@ -224,15 +242,35 @@ export default function App() {
           allRepos.push(...pageRepos);
           if (pageRepos.length < 100) break;
         }
-        if (!controller.signal.aborted) setGithubRepos(allRepos);
+        if (!controller.signal.aborted) { setGithubRepos(allRepos); setReposLoaded(true); }
       } catch (error) {
         if (!controller.signal.aborted) setReposError(error instanceof Error ? error.message : 'Could not load repositories.');
       } finally {
-        if (!controller.signal.aborted) setReposLoading(false);
+        if (!controller.signal.aborted) { setReposLoading(false); setReposLoaded(true); }
       }
     })()
-    return () => controller.abort();
-  }, [projectsOpen, immersivePortfolio, catalogTab, githubRepos.length]);
+    return () => { controller.abort(); setReposLoading(false); };
+  }, [mode, projectsOpen, immersivePortfolio, reposLoaded]);
+
+  useEffect(() => {
+    if ((mode !== 'case' && !projectsOpen && !immersivePortfolio) || githubProfile || githubProfileError) return;
+    const controller = new AbortController();
+    setGithubProfileLoading(true);
+    setGithubProfileError('');
+    fetch('https://api.github.com/users/tahabk02', {
+      headers: { Accept: 'application/vnd.github+json' }, signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`GitHub returned ${response.status}`);
+        return response.json() as Promise<GithubProfile>;
+      })
+      .then((profile) => { if (!controller.signal.aborted) setGithubProfile(profile); })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setGithubProfileError(error instanceof Error ? error.message : 'Could not load GitHub profile.');
+      })
+      .finally(() => { if (!controller.signal.aborted) setGithubProfileLoading(false); });
+    return () => { controller.abort(); setGithubProfileLoading(false); };
+  }, [mode, projectsOpen, immersivePortfolio, githubProfile, githubProfileError]);
 
   useEffect(() => {
     if (!(projectsOpen || immersivePortfolio) || catalogTab !== 'courses') return;
@@ -362,6 +400,7 @@ export default function App() {
     };
 
     const onWheel = (e: WheelEvent) => {
+      if (fastMode) return;
       e.preventDefault();
       if (document.body.classList.contains('room-walking')) return;
       if (busyRef.current || Math.abs(e.deltaY) < 18 || Date.now() - lastWheelRef.current < 750) {
@@ -373,6 +412,7 @@ export default function App() {
     };
 
     const onTouchStart = (e: TouchEvent) => {
+      if (fastMode) return;
       if (e.touches.length !== 1) return;
       const target = e.target as HTMLElement | null;
       const insideCanvas = Boolean(target?.closest('.three-canvas-host, .room-game-ui'));
@@ -380,6 +420,10 @@ export default function App() {
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      if (fastMode) {
+        touchStartRef.current = null;
+        return;
+      }
       const ts = touchStartRef.current;
       touchStartRef.current = null;
       if (!ts || busyRef.current) return;
@@ -400,6 +444,7 @@ export default function App() {
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      if (fastMode) return;
       const target = e.target as HTMLElement | null;
       if (modeRef.current === 'case' && target?.closest('.three-canvas-host')) {
         return;
@@ -408,6 +453,7 @@ export default function App() {
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (fastMode) return;
       if (e.key === 'Escape') {
         setContactOpen(false);
         if (immersivePortfolio) toHero();
@@ -440,7 +486,7 @@ export default function App() {
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('keydown', onKeyDown);
     };
-  }, [nextCase, prevCase, toCase, immersivePortfolio, toHero]);
+  }, [nextCase, prevCase, toCase, immersivePortfolio, toHero, fastMode]);
 
   const activeCase = CASES[caseIndex];
   const heroLayout = pose.heroLayout;
@@ -474,7 +520,9 @@ export default function App() {
         {/* 3D Interactive Studio Case Stage */}
         <div className={`studio-layer ${mode === 'case' ? 'is-visible' : ''}`}>
           <ErrorBoundary
-            onError={() => enterFastMode('render-error')}
+            onError={(error) => {
+              track('3d_render_error', { message: error.message });
+            }}
             fallback={(reset) => (
               <div className="gpu-fallback" role="alert">
                 <p>The 3D studio could not start on this device.</p>
@@ -498,11 +546,13 @@ export default function App() {
                 portfolioView={immersivePortfolio ? catalogTab : null}
                 portfolioPage={portfolioPage}
                 repositories={githubRepos}
+                githubProfile={githubProfile}
+                githubLoading={githubProfileLoading || reposLoading}
+                githubError={githubProfileError || reposError}
                 courses={tiktokVideos}
                 onCloseYoutube={() => setActiveYoutubeId(null)}
-                onGameInteract={() => enter3DView('projects')}
                 onScreenClick={() => immersivePortfolio ? setPortfolioPage((page) => page + 1) : nextCase()}
-                onLowPerformance={() => enterFastMode('low-fps')}
+                onLowPerformance={() => track('3d_low_fps_detected')}
                 onContextLost={() => setGpuWarning(true)}
               />
             </Suspense>
@@ -705,7 +755,7 @@ export default function App() {
 
         {immersivePortfolio && mode === 'case' && <nav className="immersive-nav" aria-label="3D portfolio sections">
           <span className="immersive-nav-label">3D PORTFOLIO</span>
-          {(['projects', 'repositories', 'courses', 'about', 'skills', 'contact'] as PortfolioScreenView[]).map((view) => <button type="button" key={view} className={catalogTab === view ? 'is-active' : ''} onClick={() => enter3DView(view)}>{view === 'repositories' ? 'Repos' : view === 'courses' ? 'Courses' : view}</button>)}
+          {(['projects', 'repositories', 'github', 'courses', 'about', 'skills', 'contact'] as PortfolioScreenView[]).map((view) => <button type="button" key={view} className={catalogTab === view ? 'is-active' : ''} onClick={() => enter3DView(view)}>{view === 'repositories' ? 'Repos' : view === 'courses' ? 'Courses' : view === 'github' ? 'GitHub' : view}</button>)}
           <span className="immersive-nav-divider" />
           <button type="button" aria-label="Previous 3D screen page" onClick={() => setPortfolioPage((page) => Math.max(0, page - 1))}>←</button>
           <button type="button" aria-label="Next 3D screen page" onClick={() => setPortfolioPage((page) => page + 1)}>→</button>
@@ -833,12 +883,13 @@ export default function App() {
       }}>
         <section className="projects-panel" aria-label="Project catalogue">
           <div className="projects-heading">
-            <div><span className="projects-eyebrow">PORTFOLIO / {catalogTab.toUpperCase()}</span><h2>{{ projects: 'Project archive', repositories: 'All repositories', courses: 'Courses & videos', about: 'About me', skills: 'Skills & tools', contact: 'Get in touch' }[catalogTab]}</h2></div>
+            <div><span className="projects-eyebrow">PORTFOLIO / {catalogTab.toUpperCase()}</span><h2>{{ projects: 'Project archive', repositories: 'All repositories', github: 'GitHub dashboard', courses: 'Courses & videos', about: 'About me', skills: 'Skills & tools', contact: 'Get in touch' }[catalogTab]}</h2></div>
             <button type="button" className="ov-close" aria-label="Close project archive" onClick={() => setProjectsOpen(false)}>×</button>
           </div>
           <nav className="catalog-tabs" aria-label="Portfolio sections">
             <button type="button" className={catalogTab === 'projects' ? 'is-active' : ''} onClick={() => setCatalogTab('projects')}>Projects ({CASES.length})</button>
             <button type="button" className={catalogTab === 'repositories' ? 'is-active' : ''} onClick={() => setCatalogTab('repositories')}>GitHub repositories</button>
+            <button type="button" className={catalogTab === 'github' ? 'is-active' : ''} onClick={() => setCatalogTab('github')}>GitHub dashboard</button>
             <button type="button" className={catalogTab === 'courses' ? 'is-active' : ''} onClick={() => setCatalogTab('courses')}>Courses & videos</button>
             <button type="button" className={catalogTab === 'about' ? 'is-active' : ''} onClick={() => setCatalogTab('about')}>About</button>
             <button type="button" className={catalogTab === 'skills' ? 'is-active' : ''} onClick={() => setCatalogTab('skills')}>Skills</button>
@@ -859,6 +910,12 @@ export default function App() {
             </table>
           </div>
           </>}
+          {catalogTab === 'github' && <section className="github-dashboard-summary">
+            <div><span>LIVE PROFILE</span><strong>{githubProfile?.name || 'Taha Boulhak'}</strong><p>{githubProfile?.bio || 'Full-stack developer building useful web experiences.'}</p></div>
+            <div className="github-dashboard-metrics"><article><small>Public repositories</small><b>{githubProfile?.public_repos ?? (reposLoaded ? githubRepos.length : '--')}</b></article><article><small>Followers</small><b>{githubProfile?.followers ?? '--'}</b></article><article><small>Following</small><b>{githubProfile?.following ?? '--'}</b></article><article><small>Public gists</small><b>{githubProfile?.public_gists ?? '--'}</b></article></div>
+            <p>{githubProfileLoading || reposLoading ? 'Syncing public GitHub data...' : githubProfileError || reposError || `${githubRepos.length} public repositories loaded.`}</p>
+            <a href={PROFILE.github} target="_blank" rel="noopener noreferrer">Open github.com/tahabk02</a>
+          </section>}
           {catalogTab === 'repositories' && <>
             {reposLoading && <p className="catalog-state">Loading public repositories from GitHub…</p>}
             {reposError && <p className="catalog-state">{reposError} <a href={PROFILE.repositoriesUrl} target="_blank" rel="noopener noreferrer">Open GitHub repositories ↗</a></p>}

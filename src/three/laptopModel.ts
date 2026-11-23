@@ -17,7 +17,7 @@ import {
   buildPodcastWall,
   buildStudioRoomAndArt,
 } from './studioProps';
-import { buildCeilingV2 } from './ceilingV2';
+import { buildCeilingV2, type CeilingRig } from './ceilingV2';
 
 function createRoundedRectShape(width: number, height: number, radius: number): THREE.Shape {
   const shape = new THREE.Shape();
@@ -92,6 +92,7 @@ export interface StudioLaptopAssembly {
   screenMesh: THREE.Mesh;
   screenMaterial: THREE.MeshBasicMaterial;
   screenDimensions: { width: number; height: number };
+  ceilingRig: CeilingRig | null;
   setFinish: (finish: ChassisFinish) => void;
   setLidAngle: (radians: number) => void;
   dispose: () => void;
@@ -310,7 +311,7 @@ export function buildStudioShowcase(
     floorY
   );
   buildMeshOfficeChair(root, tracker, floorY, 0, -0.62, 'office-chair', 1, 0);
-  buildCeilingV2(root, tracker, floorY);
+  const ceilingRig = buildCeilingV2(root, tracker, floorY);
 
   // Charcoal Merino Wool-Felt Desk Mat (flush on walnut desk, top at y = 0)
   const matW = 3.45;
@@ -1056,6 +1057,7 @@ export function buildStudioShowcase(
     screenMesh,
     screenMaterial,
     screenDimensions: { width: screenW, height: screenH },
+    ceilingRig,
     setFinish,
     setLidAngle,
     dispose,

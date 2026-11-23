@@ -1,0 +1,25 @@
+.ceiling-hud { position: absolute; z-index: 30; top: max(14px, env(safe-area-inset-top)); left: max(14px, env(safe-area-inset-left)); color: #edf6ed; font: 600 12px/1.35 Inter, system-ui, sans-serif; pointer-events: auto; }
+.ceiling-hud-trigger { min-height: 42px; display: flex; align-items: center; gap: 9px; padding: 0 13px; border: 1px solid rgba(160,217,183,.34); border-radius: 999px; background: rgba(7,20,14,.9); color: inherit; box-shadow: 0 8px 26px rgba(0,0,0,.22); cursor: pointer; }
+.ceiling-hud-trigger > span:first-child { color: #3fd08f; font-size: 16px; }
+.ceiling-hud-status { color: #a7b9aa; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.ceiling-hud-status.is-on { color: #82e7b0; }
+.ceiling-hud-panel { width: min(318px,calc(100vw - 28px)); max-height: min(76dvh,660px); overflow: auto; margin-top: 8px; padding: 15px; border: 1px solid rgba(167,219,186,.22); border-radius: 16px; background: rgba(8,19,14,.96); box-shadow: 0 18px 54px rgba(0,0,0,.38); backdrop-filter: blur(16px); }
+.ceiling-hud-panel header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: 14px; }
+.ceiling-hud-panel header button { width: 38px; height: 38px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; background: rgba(255,255,255,.06); color: #edf6ed; font-size: 23px; cursor: pointer; }
+.ceiling-master-toggle { width: 100%; min-height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 11px; border: 1px solid rgba(255,255,255,.12); border-radius: 11px; background: rgba(255,255,255,.045); color: inherit; cursor: pointer; }
+.ceiling-toggle-track { width: 38px; height: 22px; padding: 3px; border-radius: 99px; background: #33433b; transition: background .2s; }
+.ceiling-master-toggle[aria-pressed="true"] .ceiling-toggle-track { background: #237c54; }
+.ceiling-toggle-track i { display: block; width: 16px; height: 16px; border-radius: 50%; background: #eef6ef; transition: transform .2s; }
+.ceiling-master-toggle[aria-pressed="true"] .ceiling-toggle-track i { transform: translateX(16px); }
+.ceiling-range-label { display: flex; justify-content: space-between; margin: 13px 1px 4px; color: #c3d2c6; }
+.ceiling-range-label output { color: #86e2ad; font-variant-numeric: tabular-nums; }
+.ceiling-range { width: 100%; min-height: 28px; accent-color: #3fd08f; }
+.ceiling-section-label { display: block; margin: 13px 1px 7px; color: #89a294; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+.ceiling-preset-grid, .ceiling-zone-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
+.ceiling-preset-grid button, .ceiling-zone-grid button { min-height: 42px; padding: 6px 9px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; background: rgba(255,255,255,.04); color: #dce8dd; text-align: left; cursor: pointer; }
+.ceiling-preset-grid button.is-active, .ceiling-zone-grid button.is-active { border-color: rgba(63,208,143,.62); background: rgba(63,208,143,.12); color: #a8f2c8; }
+.ceiling-zone-grid button { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.ceiling-zone-grid button span { color: #4fd897; }
+.ceiling-hud-panel select { width: 100%; min-height: 42px; padding: 0 10px; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; background: #14231b; color: #e8f1e9; }
+.ceiling-hud-panel > small { display: block; margin-top: 11px; color: #82958a; font-size: 10px; }
+@media (max-width: 600px) { .ceiling-hud { top: max(8px,env(safe-area-inset-top)); left: max(8px,env(safe-area-inset-left)); } .ceiling-hud-panel { width: min(300px,calc(100vw - 16px)); max-height: 72dvh; } .ceiling-hud-trigger { min-height: 46px; } }

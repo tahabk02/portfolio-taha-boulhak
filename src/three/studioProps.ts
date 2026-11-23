@@ -4,11 +4,17 @@ import {
   createSkillTabletTexture,
   createStudioSignTexture,
   createStudioParquetMaps,
+  paintGithubDashboard,
+  type ScreenGithubProfile,
+  type ScreenRepository,
   type TabletScreenType,
 } from './screenPainter';
 import { SCALE, WORLD_SCALE } from '../config/scale';
 import { TARGET_WALL } from '../config/layout';
 import { NEON_DODGE } from '../config/game';
+import { PROJECT_GALLERY } from '../config/projectGallery';
+import { ROOM_BOUNDS } from '../config/colliders';
+import { CASES } from '../data/portfolio';
 
 interface Tracker {
   geo: <T extends THREE.BufferGeometry>(g: T) => T;
@@ -500,6 +506,119 @@ export function buildStudioRoomAndArt(
   };
   buildShelf(-4.38, floorY + 1.5, 'left');
   buildShelf(4.38, floorY + 1.5, 'right');
+
+  // Live GitHub control board mounts on the rear side wall beside the door.
+  const githubDashboardCanvas = document.createElement('canvas');
+  githubDashboardCanvas.width = 1280; githubDashboardCanvas.height = 720;
+  const githubDashboardContext = githubDashboardCanvas.getContext('2d');
+  const githubDashboardTexture = track.tex(new THREE.CanvasTexture(githubDashboardCanvas));
+  githubDashboardTexture.colorSpace = THREE.SRGBColorSpace;
+  githubDashboardTexture.anisotropy = Math.min(maxAnisotropy, 4);
+  const paintGithubBoard = (profile: ScreenGithubProfile | null, repos: ScreenRepository[], loading: boolean, error = '', page = 0) => {
+    if (!githubDashboardContext) return;
+    paintGithubDashboard(githubDashboardContext, githubDashboardCanvas.width, githubDashboardCanvas.height, profile, repos, loading, error, page);
+    githubDashboardTexture.needsUpdate = true;
+  };
+  paintGithubBoard(null, [], true);
+  const githubDashboard = new THREE.Group();
+  githubDashboard.name = 'github-wall-dashboard';
+  const githubBoardWidth = 2.48;
+  const githubBoardHeight = 1.45;
+  const githubBoardDepth = 0.075;
+  const innerDoorWallX = -WORLD_SCALE.roomWidth / 2 + 0.06;
+  githubDashboard.position.set(innerDoorWallX + githubBoardDepth / 2, floorY + 1.55, 8.15);
+  githubDashboard.rotation.y = Math.PI / 2;
+  root.add(githubDashboard);
+  const githubDashboardFrame = new THREE.Mesh(
+    track.geo(new RoundedBoxGeometry(githubBoardWidth, githubBoardHeight, githubBoardDepth, 6, 0.045)),
+    tabletFrameMat
+  );
+  githubDashboardFrame.name = 'github-wall-dashboard-frame';
+  githubDashboardFrame.castShadow = true; githubDashboardFrame.receiveShadow = true;
+  githubDashboard.add(githubDashboardFrame);
+  const githubDashboardScreen = new THREE.Mesh(
+    track.geo(new THREE.PlaneGeometry(2.35, 1.32)),
+    track.mat(new THREE.MeshBasicMaterial({ map: githubDashboardTexture, toneMapped: false, side: THREE.DoubleSide }))
+  );
+  githubDashboardScreen.name = 'github-wall-dashboard-screen';
+  githubDashboardScreen.position.z = githubBoardDepth / 2 + 0.005;
+  githubDashboardScreen.userData.setGithubDashboard = paintGithubBoard;
+  githubDashboard.add(githubDashboardScreen);
+
+  // One low-draw-call project wall sits at the far end of the room, behind the avatar.
+  const galleryCanvas = document.createElement('canvas');
+  galleryCanvas.width = PROJECT_GALLERY.canvasWidth;
+  galleryCanvas.height = PROJECT_GALLERY.canvasHeight;
+  const galleryContext = galleryCanvas.getContext('2d');
+  const galleryTexture = track.tex(new THREE.CanvasTexture(galleryCanvas));
+  galleryTexture.colorSpace = THREE.SRGBColorSpace;
+  galleryTexture.anisotropy = Math.min(maxAnisotropy, 4);
+  const galleryMaterial = track.mat(new THREE.MeshBasicMaterial({ map: galleryTexture, toneMapped: false }));
+  const drawGallery = () => {
+    const ctx = galleryContext;
+    if (!ctx) return;
+    const width = PROJECT_GALLERY.canvasWidth;
+    const height = PROJECT_GALLERY.canvasHeight;
+    ctx.fillStyle = '#101710'; ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = '#d8ff45'; ctx.font = '700 14px ui-monospace, monospace';
+    ctx.fillText('TAHA BOULHAK  /  SELECTED WORK', 28, 30);
+    ctx.textAlign = 'right'; ctx.fillStyle = '#9ba99a'; ctx.fillText('FULL-STACK  ·  2026', width - 28, 30); ctx.textAlign = 'left';
+    ctx.fillStyle = '#d8ff45'; ctx.fillRect(28, 43, width - 56, 2);
+    const marginX = 28; const gapX = 16; const gapY = 13;
+    const gridTop = 59; const cardWidth = (width - marginX * 2 - gapX * 2) / 3;
+    const cardHeight = (height - gridTop - 17 - gapY) / 2;
+    CASES.forEach((project, index) => {
+      const column = index % 3; const row = Math.floor(index / 3);
+      const x = marginX + column * (cardWidth + gapX); const y = gridTop + row * (cardHeight + gapY);
+      ctx.fillStyle = '#1a241b'; ctx.fillRect(x, y, cardWidth, cardHeight);
+      ctx.strokeStyle = project.accentHex; ctx.lineWidth = 2; ctx.strokeRect(x + 1, y + 1, cardWidth - 2, cardHeight - 2);
+      const photo = galleryImages[index];
+      const photoHeight = Math.round(cardHeight * 0.56);
+      if (photo?.complete && photo.naturalWidth > 0) {
+        const scale = Math.max(cardWidth / photo.naturalWidth, photoHeight / photo.naturalHeight);
+        const cropWidth = cardWidth / scale; const cropHeight = photoHeight / scale;
+        ctx.drawImage(photo, (photo.naturalWidth - cropWidth) / 2, (photo.naturalHeight - cropHeight) / 2, cropWidth, cropHeight, x, y, cardWidth, photoHeight);
+      } else {
+        ctx.fillStyle = '#26372a'; ctx.fillRect(x, y, cardWidth, photoHeight);
+      }
+      ctx.fillStyle = project.accentHex; ctx.font = '700 11px ui-monospace, monospace';
+      ctx.fillText(`0${index + 1}  /  ${project.key.replace(/^\/\/\s*/, '').toUpperCase()}`, x + 14, y + photoHeight + 17);
+      ctx.fillStyle = '#f2f0e7'; ctx.font = '800 23px Arial, sans-serif'; ctx.fillText(project.title, x + 14, y + photoHeight + 44);
+      ctx.fillStyle = '#b6c0b2'; ctx.font = '12px Arial, sans-serif'; ctx.fillText(project.rows[1], x + 14, y + cardHeight - 12);
+    });
+    galleryTexture.needsUpdate = true;
+  };
+  const galleryImages = CASES.map((project) => {
+    const image = new Image();
+    image.onload = drawGallery;
+    image.src = project.photo;
+    return image;
+  });
+  drawGallery();
+  const galleryCenterY = floorY + WORLD_SCALE.roomHeight / 2;
+  const galleryWallZ = ROOM_BOUNDS.maxZ - PROJECT_GALLERY.panelInset;
+  // Close the far end of the room and mount the gallery against its inside face.
+  const galleryRoomWall = new THREE.Mesh(
+    track.geo(new THREE.PlaneGeometry(WORLD_SCALE.roomWidth, WORLD_SCALE.roomHeight)),
+    track.mat(new THREE.MeshStandardMaterial({ color: 0x183d2c, roughness: 0.92, side: THREE.DoubleSide }))
+  );
+  galleryRoomWall.name = 'far-project-gallery-room-wall';
+  galleryRoomWall.rotation.y = Math.PI;
+  galleryRoomWall.position.set(0, galleryCenterY, ROOM_BOUNDS.maxZ + 0.001);
+  root.add(galleryRoomWall);
+  const galleryBacking = new THREE.Mesh(
+    track.geo(new THREE.BoxGeometry(PROJECT_GALLERY.panelWidth + 0.14, PROJECT_GALLERY.panelHeight + 0.14, PROJECT_GALLERY.panelDepth)),
+    track.mat(new THREE.MeshStandardMaterial({ color: 0x101710, roughness: 0.82, metalness: 0.08 }))
+  );
+  galleryBacking.name = 'far-project-gallery-frame';
+  galleryBacking.position.set(0, galleryCenterY, galleryWallZ + PROJECT_GALLERY.panelDepth / 2);
+  root.add(galleryBacking);
+  const galleryScreen = new THREE.Mesh(track.geo(new THREE.PlaneGeometry(PROJECT_GALLERY.panelWidth, PROJECT_GALLERY.panelHeight)), galleryMaterial);
+  galleryScreen.name = 'far-project-gallery-screen';
+  galleryScreen.rotation.y = Math.PI;
+  galleryScreen.position.set(0, galleryCenterY, galleryWallZ - 0.006);
+  galleryScreen.userData.projectIds = CASES.map((project) => project.id);
+  root.add(galleryScreen);
 }
 
 /** Adds a warm, lived-in sleeping corner beside the developer desk. */
@@ -612,16 +731,14 @@ export function buildBedroomCorner(
   lampLight.position.copy(bulb.position);
   bedroom.add(lampLight);
 
-  // Keep the four-pane wooden window on its original back-wall position.
-  const wallZ = -2.445;
-  const windowX = -5.65;
+  // The city window sits on the long gallery wall, immediately beside the project display.
   const window = new THREE.Group();
   window.name = 'bedroom-window';
-  window.position.set(windowX, floorY + 2.05, wallZ);
+  window.position.set(-6.65, floorY + 2.05, ROOM_BOUNDS.maxZ - 0.02);
+  window.rotation.y = Math.PI;
   window.scale.setScalar(1.3);
   root.add(window);
   const windowWood = track.mat(new THREE.MeshStandardMaterial({ color: 0x765338, roughness: 0.72 }));
-  const windowDaylight = track.mat(new THREE.MeshBasicMaterial({ color: 0xd7efff, toneMapped: false }));
   const windowPart = (name: string, size: [number, number, number], position: [number, number, number], material: THREE.Material) => {
     const part = new THREE.Mesh(track.geo(new THREE.BoxGeometry(...size)), material);
     part.name = name;
@@ -638,22 +755,55 @@ export function buildBedroomCorner(
   const frameDepth = 0.07;
   const innerWidth = windowWidth - rail * 2;
   const innerHeight = windowHeight - rail * 2;
+  const casablancaCanvas = document.createElement('canvas');
+  casablancaCanvas.width = 1024; casablancaCanvas.height = 576;
+  const city = casablancaCanvas.getContext('2d');
+  if (city) {
+    const sky = city.createLinearGradient(0, 0, 0, 576);
+    sky.addColorStop(0, '#536f86'); sky.addColorStop(0.52, '#e8a77e'); sky.addColorStop(1, '#f4d0a0');
+    city.fillStyle = sky; city.fillRect(0, 0, 1024, 576);
+    city.fillStyle = 'rgba(255,235,190,.72)'; city.beginPath(); city.arc(790, 220, 62, 0, Math.PI * 2); city.fill();
+    city.fillStyle = '#78959b'; city.fillRect(0, 382, 1024, 194);
+    city.fillStyle = 'rgba(239,206,161,.5)';
+    for (let y = 410; y < 576; y += 31) { city.fillRect(0, y, 1024, 2); }
+    // Casablanca's low-rise city silhouette at the water's edge.
+    let seed = 41;
+    for (let x = -12; x < 1024; x += 43) {
+      seed = (seed * 16807) % 2147483647;
+      const height = 62 + seed % 118;
+      city.fillStyle = ['#a76f5c', '#bd8469', '#896858', '#d19a73'][seed % 4];
+      city.fillRect(x, 382 - height, 39, height);
+      city.fillStyle = 'rgba(255,224,165,.5)';
+      for (let wy = 398 - height; wy < 374; wy += 19) for (let wx = x + 7; wx < x + 35; wx += 12) city.fillRect(wx, wy, 4, 6);
+    }
+    // Hassan II Mosque and its unmistakable square minaret on the Atlantic shore.
+    city.fillStyle = '#ead8bd';
+    city.fillRect(626, 335, 196, 47);
+    city.beginPath(); city.moveTo(616, 338); city.lineTo(642, 307); city.lineTo(804, 307); city.lineTo(831, 338); city.closePath(); city.fill();
+    for (let ax = 653; ax <= 782; ax += 31) {
+      city.fillStyle = '#9a725c'; city.beginPath(); city.arc(ax, 365, 10, Math.PI, 0); city.lineTo(ax + 10, 382); city.lineTo(ax - 10, 382); city.closePath(); city.fill();
+    }
+    city.fillStyle = '#f1e1c5'; city.fillRect(704, 127, 43, 181);
+    city.fillStyle = '#d1ad78'; city.fillRect(698, 118, 55, 12); city.fillRect(711, 94, 29, 25);
+    city.fillStyle = '#f3e7cf'; city.beginPath(); city.moveTo(711, 94); city.lineTo(725, 66); city.lineTo(740, 94); city.closePath(); city.fill();
+    city.fillStyle = '#b98458'; city.fillRect(714, 149, 23, 8); city.fillRect(714, 182, 23, 8); city.fillRect(714, 215, 23, 8);
+    city.fillStyle = '#f4e9d7'; city.font = '700 21px Arial, sans-serif'; city.fillText('CASABLANCA  ·  MAROC', 34, 48);
+    city.fillStyle = 'rgba(28,46,54,.76)'; city.font = '600 15px Arial, sans-serif'; city.fillText('ATLANTIC COAST  /  MOSQUÉE HASSAN II', 35, 73);
+    city.fillStyle = 'rgba(255,236,199,.5)'; city.fillRect(0, 379, 1024, 3);
+  }
+  const casablancaTexture = track.tex(new THREE.CanvasTexture(casablancaCanvas));
+  casablancaTexture.colorSpace = THREE.SRGBColorSpace;
+  const cityView = new THREE.Mesh(
+    track.geo(new THREE.PlaneGeometry(innerWidth, innerHeight)),
+    track.mat(new THREE.MeshBasicMaterial({ map: casablancaTexture, toneMapped: false }))
+  );
+  cityView.name = 'bedroom-casablanca-window-view';
+  cityView.position.z = 0.025;
+  window.add(cityView);
   windowPart('bedroom-window-frame-left', [rail, windowHeight, frameDepth], [-windowWidth / 2 + rail / 2, 0, 0.055], windowWood);
   windowPart('bedroom-window-frame-right', [rail, windowHeight, frameDepth], [windowWidth / 2 - rail / 2, 0, 0.055], windowWood);
   windowPart('bedroom-window-frame-top', [windowWidth, rail, frameDepth], [0, windowHeight / 2 - rail / 2, 0.055], windowWood);
   windowPart('bedroom-window-frame-bottom', [windowWidth, rail, frameDepth], [0, -windowHeight / 2 + rail / 2, 0.055], windowWood);
-  const paneWidth = (innerWidth - muntin) / 2;
-  const paneHeight = (innerHeight - muntin) / 2;
-  for (const xSide of [-1, 1]) {
-    for (const ySide of [-1, 1]) {
-      windowPart(
-        `bedroom-window-pane-${xSide}-${ySide}`,
-        [paneWidth, paneHeight, 0.012],
-        [xSide * (muntin / 2 + paneWidth / 2), ySide * (muntin / 2 + paneHeight / 2), 0.075],
-        windowDaylight
-      );
-    }
-  }
   windowPart('bedroom-window-muntin-v', [muntin, innerHeight, 0.045], [0, 0, 0.074], windowWood);
   windowPart('bedroom-window-muntin-h', [innerWidth, muntin, 0.045], [0, 0, 0.074], windowWood);
   windowPart('bedroom-window-sill', [windowWidth + 0.2, 0.09, 0.2], [0, -windowHeight / 2 - 0.045, 0.09], windowWood);
@@ -1524,10 +1674,9 @@ export function buildGamingCorner(
  * Upgrades the walnut desk with architectural steel trestle legs, under-desk 3-drawer walnut credenza,
  * cable grommet, articulated studio desk lamp, and ceramic planter.
  */
-/** Groups and relocates the podcast wall decor and bedroom window as one rigid assembly. */
+/** Groups the podcast wall decor as one rigid assembly. */
 export function buildPodcastWall(root: THREE.Group) {
   const isPodcastWallDecoration = (name: string) =>
-    name === 'bedroom-window' ||
     name === 'podcast-acoustic-panel' ||
     name === 'podcast-acoustic-walnut-slats' ||
     name === 'podcast-tag-wall' ||

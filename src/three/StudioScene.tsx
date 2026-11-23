@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { CeilingLightHud } from '../components/CeilingLightHud';
 import { SCALE, WORLD_SCALE } from '../config/scale';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
@@ -14,6 +15,9 @@ import {
 import { PERF, FEATURE_FLAGS } from '../config/perf';
 import { COPY, type Language } from '../config/copy';
 import { CAMERA_LIMITS, COLLISION, ROOM_COLLIDERS } from '../config/colliders';
+import { PROJECT_GALLERY } from '../config/projectGallery';
+import { CEILING } from '../config/ceiling';
+import { getCeilingLightingState, setCeilingPreset, toggleCeilingLighting } from '../lib/ceilingLighting';
 import { resolvePlanarMove, pushOutOfColliders } from '../lib/collision';
 import { InteractionMachine, type InteractionState, type SeatZone } from '../lib/interactionState';
 import { FpsGuard, prefersReducedMotion } from '../lib/perf';
@@ -24,7 +28,7 @@ import {
   type Point2D,
 } from '../lib/poseMath';
 import { buildStudioShowcase } from './laptopModel';
-import { paintCaseScreen, paintPortfolioScreen, type PortfolioScreenView, type ScreenCourse, type ScreenRepository } from './screenPainter';
+import { paintCaseScreen, paintPortfolioScreen, type PortfolioScreenView, type ScreenCourse, type ScreenGithubProfile, type ScreenRepository } from './screenPainter';
 
 const GAME_KEYS = new Set(['w', 'a', 's', 'd', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
 type RoomAction = 'desk' | 'gaming' | 'sofa' | 'podcast' | 'gym' | 'lamp' | 'bed' | 'tv' | 'door' | null;
@@ -315,9 +319,11 @@ interface StudioSceneProps {
   portfolioView?: PortfolioScreenView | null;
   portfolioPage?: number;
   repositories?: ScreenRepository[];
+  githubProfile?: ScreenGithubProfile | null;
+  githubLoading?: boolean;
+  githubError?: string;
   courses?: ScreenCourse[];
   onCloseYoutube?: () => void;
-  onGameInteract?: () => void;
   onScreenClick: () => void;
   onLowPerformance?: () => void;
   onContextLost?: () => void;
@@ -356,9 +362,11 @@ export function StudioScene({
   portfolioView = null,
   portfolioPage = 0,
   repositories = [],
+  githubProfile = null,
+  githubLoading = false,
+  githubError = '',
   courses = [],
   onCloseYoutube,
-  onGameInteract,
   onScreenClick,
   onLowPerformance,
   onContextLost,
@@ -371,9 +379,11 @@ export function StudioScene({
   const [gamePrompt, setGamePrompt] = useState<RoomAction>(null);
   const [gameToast, setGameToast] = useState('');
   const [resting, setResting] = useState(false);
+  const [gettingUp, setGettingUp] = useState(false);
   const [sitting, setSitting] = useState(false);
   const [tvOn, setTvOn] = useState(true);
   const [consolePlaying, setConsolePlayingState] = useState(false);
+  const [roomProjectsView, setRoomProjectsView] = useState(false);
   const [consoleGameOver, setConsoleGameOver] = useState(false);
   const [consoleScore, setConsoleScore] = useState(0);
   const [consoleBestScore, setConsoleBestScore] = useState(0);
@@ -385,7 +395,6 @@ export function StudioScene({
   const deskModeRef = useRef<'talk' | 'write' | 'code' | null>(null);
   const [avatarLoading, setAvatarLoading] = useState(false);
   const walkingRef = useRef(false);
-  const onGameInteractRef = useRef(onGameInteract);
   const onLowPerformanceRef = useRef(onLowPerformance);
   const onContextLostRef = useRef(onContextLost);
   const reducedMotionRef = useRef(prefersReducedMotion());
@@ -401,6 +410,9 @@ export function StudioScene({
   const portfolioViewRef = useRef<PortfolioScreenView | null>(portfolioView);
   const portfolioPageRef = useRef(portfolioPage);
   const repositoriesRef = useRef(repositories);
+  const githubProfileRef = useRef(githubProfile);
+  const githubLoadingRef = useRef(githubLoading);
+  const githubErrorRef = useRef(githubError);
   const coursesRef = useRef(courses);
   const onScreenClickRef = useRef(onScreenClick);
 
@@ -425,9 +437,13 @@ export function StudioScene({
     interact: () => void;
     playConsole: () => void;
     consoleAction: () => void;
+    viewProjects: () => void;
+    returnToRoom: () => void;
     restartConsoleGame: () => void;
     setDeskCode: (code: string | null) => void;
     animateSpeech: (duration: number) => void;
+    updateGithubDashboard: (profile: ScreenGithubProfile | null, repos: ScreenRepository[], loading: boolean, error: string, page?: number) => void;
+      requestRender: () => void;
   } | null>(null);
 
   activeRef.current = active;
@@ -438,10 +454,29 @@ export function StudioScene({
   portfolioViewRef.current = portfolioView;
   portfolioPageRef.current = portfolioPage;
   repositoriesRef.current = repositories;
+  githubProfileRef.current = githubProfile;
+  githubLoadingRef.current = githubLoading;
+  githubErrorRef.current = githubError;
   coursesRef.current = courses;
   onScreenClickRef.current = onScreenClick;
-  onGameInteractRef.current = onGameInteract;
   deskModeRef.current = deskMode;
+
+  const presentCharacter = () => {
+    if (!("speechSynthesis" in window)) {
+      setGameToast(lang === 'fr' ? 'La synth\u00e8se vocale est indisponible dans ce navigateur.' : 'Speech is unavailable in this browser.');
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const speech = new SpeechSynthesisUtterance(copy.presentationSpeech);
+    speech.lang = lang === 'fr' ? 'fr-FR' : 'en-US';
+    speech.rate = 0.94;
+    speech.pitch = 1;
+    const languagePrefix = lang === 'fr' ? 'fr' : 'en';
+    const voice = window.speechSynthesis.getVoices().find((item) => item.lang.toLowerCase().startsWith(languagePrefix));
+    if (voice) speech.voice = voice;
+    apiRef.current?.animateSpeech(Math.max(6000, copy.presentationSpeech.length * 58));
+    window.speechSynthesis.speak(speech);
+  };
 
   const chooseDeskMode = (mode: 'talk' | 'write' | 'code') => {
     deskModeRef.current = mode;
@@ -463,7 +498,7 @@ export function StudioScene({
       }
     } else if (deskMode === 'write') {
       setDeskNotes((notes) => [text, ...notes].slice(0, 4));
-      setDeskMessage('Note enregistrée dans ton carnet.');
+      setDeskMessage('Note enregistrÃ©e dans ton carnet.');
       setDeskDraft('');
     }
   };
@@ -611,7 +646,11 @@ export function StudioScene({
           portfolioPageRef.current,
           repositoriesRef.current,
           coursesRef.current,
-          photoCache
+          photoCache,
+          githubProfileRef.current,
+          githubLoadingRef.current,
+          githubErrorRef.current,
+          portfolioViewRef.current === 'github' ? githubDashboardPage : 0
         );
       } else {
         const photoImg = photoCache.get(caseRef.current.photo) ?? null;
@@ -658,11 +697,27 @@ export function StudioScene({
       : Math.min(renderer.capabilities.getMaxAnisotropy(), PERF.maxAnisotropy);
     const assembly = buildStudioShowcase(finishRef.current, screenTexture, maxAnisotropy);
     scene.add(assembly.root);
+    const ceilingRoomLights = {
+      hemisphere: hemiLight, key: keyLight, rim: rimLight,
+      accents: [galleryWarmFill, wallWash, shelfWarmth, deskPractical],
+    };
+    let ceilingContinuous = false;
+    const ceilingSwitchPanel = assembly.root.getObjectByName('ceiling-switch-panel');
+    const ceilingSwitchButton = assembly.root.getObjectByName('ceiling-switch-button') as THREE.Mesh | undefined;
+    let ceilingSwitchHovered = false;
     logRoomScaleAudit(assembly.root);
     const tabletScreens: THREE.Mesh[] = [];
     assembly.root.traverse((object) => {
       if (object instanceof THREE.Mesh && object.name === 'wall-tablet-screen') tabletScreens.push(object);
     });
+    const githubDashboardScreen = assembly.root.getObjectByName('github-wall-dashboard-screen') as THREE.Mesh | undefined;
+    let githubDashboardPage = 0;
+    const updateGithubDashboard = (profile: ScreenGithubProfile | null, repos: ScreenRepository[], loading: boolean, error: string, page = githubDashboardPage) => {
+      githubDashboardPage = (page % 3 + 3) % 3;
+      const update = githubDashboardScreen?.userData.setGithubDashboard as ((p: ScreenGithubProfile | null, r: ScreenRepository[], l: boolean, e: string, page: number) => void) | undefined;
+      update?.(profile, repos, loading, error, githubDashboardPage);
+    };
+    updateGithubDashboard(githubProfileRef.current, repositoriesRef.current, githubLoadingRef.current, githubErrorRef.current);
     const tvScreenMesh = assembly.root.getObjectByName('bedroom-television-screen') as THREE.Mesh | undefined;
     const tvGlowLight = assembly.root.getObjectByName('bedroom-tv-glow') as THREE.PointLight | undefined;
     const bedsideLampLight = assembly.root.getObjectByName('bedside-lamp-light') as THREE.PointLight | undefined;
@@ -768,15 +823,24 @@ export function StudioScene({
     })();
     const pressedKeys = new Set<string>();
     const movementVelocity = new THREE.Vector2();
-    const restingPosition = new THREE.Vector3(7.6, floorY + SCALE.bed.mattressTop, 7.2);
+    const sleepingPosition = new THREE.Vector3(7.6, floorY + SCALE.bed.mattressTop + 0.22, 7.65);
+    const sleepingQuaternion = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(-1, 0, 0),
+      new THREE.Vector3(0, 0, -1),
+      new THREE.Vector3(0, -1, 0)
+    ));
+    const standingQuaternion = new THREE.Quaternion();
+    const wakePosition = new THREE.Vector3(6.35, floorY, 8.45);
     const sittingPosition = new THREE.Vector3(0, floorY, 0.55);
     let walkClock = 0;
     let lastGamePrompt: RoomAction = null;
     let lampEnabled = true;
     let tvEnabled = true;
     let isResting = false;
+    let isGettingUp = false;
     let isSitting = false;
     let isConsolePlaying = false;
+    let isRoomProjectsView = false;
     let consoleGameOverActive = false;
     let sittingOn: 'desk' | 'gaming' | 'sofa' | 'podcast' = 'desk';
     let podcastSeatX = -7.27;
@@ -802,6 +866,23 @@ export function StudioScene({
       new THREE.Vector3(7.6, floorY + SCALE.bed.mattressTop, 7.2),
       new THREE.Vector3(6.53, floorY + 1.0, 6.54),
     ];
+    const gazeTargets: Partial<Record<Exclude<RoomAction, null>, THREE.Vector3>> = {
+      desk: interactableTargets[0], tv: interactableTargets[1], bed: interactableTargets[2], gaming: interactableTargets[3],
+    };
+    const focusBounds = new THREE.Box3();
+    const measuredFocus = (name: string) => {
+      const object = assembly.root.getObjectByName(name);
+      if (!object) return null;
+      focusBounds.setFromObject(object);
+      const target = focusBounds.getCenter(new THREE.Vector3());
+      target.y = Math.max(target.y, floorY + 1.15);
+      return target;
+    };
+    gazeTargets.sofa = measuredFocus('gaming-sofa') ?? undefined;
+    gazeTargets.podcast = measuredFocus('podcast-armchair-1') ?? measuredFocus('podcast-armchair-2') ?? undefined;
+    gazeTargets.gym = measuredFocus('mini-gym-barbell') ?? undefined;
+    gazeTargets.lamp = measuredFocus('bedside-lamp-bulb') ?? undefined;
+    const gazeTarget = new THREE.Vector3();
     let toastTimer = 0;
     let deskSpeechUntil = 0;
     const interaction = new InteractionMachine();
@@ -826,6 +907,7 @@ export function StudioScene({
         setResting(false);
         player.root.rotation.x = 0;
       }
+      if (isGettingUp) { isGettingUp = false; setGettingUp(false); }
       if (isConsolePlaying) setConsoleGame(false);
       movementVelocity.set(0, 0);
       pressedKeys.clear();
@@ -856,7 +938,7 @@ export function StudioScene({
       setMode?.(enabled);
       if (screen) screen.visible = true;
       if (tvGlowLight) tvGlowLight.intensity = 0.8;
-      setGameToast(enabled ? 'Partie lancée ! Flèches ou A/D pour esquiver, E pour arrêter.' : 'Console en pause. E pour te relever.');
+      setGameToast(enabled ? 'Partie lancÃ©e ! FlÃ¨ches ou A/D pour esquiver, E pour arrÃªter.' : 'Console en pause. E pour te relever.');
       window.clearTimeout(toastTimer);
       toastTimer = window.setTimeout(() => setGameToast(''), enabled ? 2800 : 1800);
       requestRender();
@@ -890,7 +972,7 @@ export function StudioScene({
     };
     const moveKey = (key: string, pressed: boolean) => {
       const normalized = key.toLowerCase();
-      if (!GAME_KEYS.has(normalized)) return;
+      if (!GAME_KEYS.has(normalized) || isGettingUp) return;
       if (isConsolePlaying) {
         if (pressed) moveConsolePlayer(normalized);
         return;
@@ -900,6 +982,8 @@ export function StudioScene({
     };
     const setWalking = (enabled: boolean) => {
       if (!enabled && isConsolePlaying) setConsoleGame(false);
+      isRoomProjectsView = false;
+      setRoomProjectsView(false);
       if (!enabled) {
         updateDeskCode(null);
         deskModeRef.current = null;
@@ -914,6 +998,8 @@ export function StudioScene({
       isGrounded = true;
       isResting = false;
       setResting(false);
+      isGettingUp = false;
+      setGettingUp(false);
       isSitting = false;
       sittingOn = 'desk';
       setSitting(false);
@@ -956,7 +1042,43 @@ export function StudioScene({
       controls.update();
       requestRender();
     };
+    const viewProjects = () => {
+      if (!walkingRef.current) return;
+      isRoomProjectsView = true;
+      setRoomProjectsView(true);
+      pressedKeys.clear(); movementVelocity.set(0, 0);
+      player.root.visible = false;
+      controls.enabled = false;
+      camera.fov = camera.aspect < 1 ? Math.min(70, 42 / Math.max(0.45, camera.aspect)) : 52;
+      camera.updateProjectionMatrix();
+      const halfFov = THREE.MathUtils.degToRad(camera.fov / 2);
+      const distance = Math.max(
+        PROJECT_GALLERY.panelWidth / (2 * Math.tan(halfFov) * Math.max(0.4, camera.aspect)),
+        PROJECT_GALLERY.panelHeight / (2 * Math.tan(halfFov))
+      ) + 1.15;
+      const wallZ = PROJECT_GALLERY.wallZ;
+      camTargetPosRef.current.set(0, floorY + PROJECT_GALLERY.cameraHeightAboveFloor, wallZ - distance);
+      camTargetLookRef.current.set(0, floorY + PROJECT_GALLERY.cameraTargetHeightAboveFloor, wallZ);
+      cameraAnimatingRef.current = true;
+      requestRender();
+    };
+    const returnToRoom = () => {
+      if (!isRoomProjectsView) return;
+      isRoomProjectsView = false;
+      setRoomProjectsView(false);
+      player.root.visible = true;
+      controls.enabled = false;
+      camera.fov = camera.aspect < 1 ? Math.min(70, 52 / Math.max(0.45, camera.aspect)) : 52;
+      camera.updateProjectionMatrix();
+      cameraYaw = player.root.rotation.y;
+      safeCameraRange = cameraDistance;
+      lastCameraCollisionCheck = 0;
+      cameraAnimatingRef.current = false;
+      requestRender();
+    };
     const interact = () => {
+      if (isRoomProjectsView) { returnToRoom(); return; }
+      if (isGettingUp) return;
       if (!walkingRef.current) return;
       if (isConsolePlaying) {
         setConsoleGame(false);
@@ -966,7 +1088,7 @@ export function StudioScene({
       }
       if (lastGamePrompt === 'gym') {
         workoutUntil = performance.now() + 5200;
-        setGameToast('Séance lancée : ton personnage enchaîne des répétitions.');
+        setGameToast('SÃ©ance lancÃ©e : ton personnage enchaÃ®ne des rÃ©pÃ©titions.');
         window.clearTimeout(toastTimer);
         toastTimer = window.setTimeout(() => setGameToast(''), 3000);
         requestRender();
@@ -997,7 +1119,7 @@ export function StudioScene({
             player.spine.position.y = 0.55;
             for (const arm of player.arms) arm.position.y = 1.05;
             for (const elbow of player.elbows) elbow.rotation.x = 0.18;
-            setGameToast('Tu es assis sur le canapé. Appuie sur E pour te relever.');
+            setGameToast('Tu es assis sur le canapÃ©. Appuie sur E pour te relever.');
           } else if (sittingOn === 'podcast') {
             sittingPosition.set(podcastSeatX, floorY + 0.12, 0.34);
             player.root.position.copy(sittingPosition);
@@ -1013,7 +1135,7 @@ export function StudioScene({
             player.spine.position.y = 0.4;
             for (const arm of player.arms) { arm.position.y = 1.08; arm.rotation.x = 0.52; }
             for (const elbow of player.elbows) elbow.rotation.x = 0.42;
-            setGameToast('Setup gaming activé. Tu peux coder et utiliser les trois écrans.');
+            setGameToast('Setup gaming activÃ©. Tu peux coder et utiliser les trois Ã©crans.');
           } else {
             sittingPosition.set(0, floorY, -0.87);
             player.root.position.copy(sittingPosition);
@@ -1064,7 +1186,7 @@ export function StudioScene({
         if (lamp) lamp.intensity = lampEnabled ? 0.72 : 0;
         const bulbMaterial = bulb?.material as THREE.MeshStandardMaterial | undefined;
         if (bulbMaterial?.emissiveIntensity !== undefined) bulbMaterial.emissiveIntensity = lampEnabled ? 1.5 : 0;
-        setGameToast(lampEnabled ? 'La lampe est allumée.' : 'La lampe est éteinte.');
+        setGameToast(lampEnabled ? 'La lampe est allumÃ©e.' : 'La lampe est Ã©teinte.');
         window.clearTimeout(toastTimer);
         toastTimer = window.setTimeout(() => setGameToast(''), 1800);
       } else if (lastGamePrompt === 'bed') {
@@ -1072,13 +1194,20 @@ export function StudioScene({
         setResting(isResting);
         pressedKeys.clear();
         movementVelocity.set(0, 0);
+        verticalVelocity = 0;
+        isGrounded = true;
         if (isResting) {
-          restingPosition.set(7.6, floorY + SCALE.bed.mattressTop, 7.2);
-          player.root.rotation.y = 0;
+          isGettingUp = false;
+          setGettingUp(false);
+          cameraYaw = 0.45; cameraPitch = 0.3; cameraDistance = 2.8;
+          safeCameraRange = cameraDistance;
           setGameToast('Bonne pause !');
         } else {
-          restingPosition.set(6.35, floorY, 8.45);
-          setGameToast('Tu es debout.');
+          isGettingUp = true;
+          setGettingUp(true);
+          cameraYaw = 0.34; cameraPitch = 0.025; cameraDistance = SCALE.thirdPersonCamera.distance;
+          safeCameraRange = cameraDistance;
+          setGameToast(lang === 'fr' ? 'Tu te r?veilles...' : 'Getting up...');
         }
         window.clearTimeout(toastTimer);
         toastTimer = window.setTimeout(() => setGameToast(''), 1600);
@@ -1089,7 +1218,7 @@ export function StudioScene({
         const tvLight = tvGlowLight;
         if (screen) screen.visible = tvEnabled;
         if (tvLight) tvLight.intensity = tvEnabled ? 0.8 : 0;
-        setGameToast(tvEnabled ? 'La télévision est allumée.' : 'La télévision est éteinte.');
+        setGameToast(tvEnabled ? 'La tÃ©lÃ©vision est allumÃ©e.' : 'La tÃ©lÃ©vision est Ã©teinte.');
         window.clearTimeout(toastTimer);
         toastTimer = window.setTimeout(() => setGameToast(''), 1800);
       }
@@ -1097,6 +1226,12 @@ export function StudioScene({
     };
     const handleGameKeyDown = (event: KeyboardEvent) => {
       if (!walkingRef.current) return;
+      if (isRoomProjectsView) {
+        if (event.key.toLowerCase() === 'e' || event.key === 'Escape') {
+          event.preventDefault(); event.stopImmediatePropagation(); returnToRoom();
+        }
+        return;
+      }
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
       if (isConsolePlaying) {
@@ -1136,18 +1271,32 @@ export function StudioScene({
       requestRender();
     };
     const handleGameKeyUp = (event: KeyboardEvent) => {
-      if (!walkingRef.current || !GAME_KEYS.has(event.key.toLowerCase())) return;
+      if (!walkingRef.current || isRoomProjectsView || !GAME_KEYS.has(event.key.toLowerCase())) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       moveKey(event.key, false);
     };
     window.addEventListener('keydown', handleGameKeyDown, true);
     window.addEventListener('keyup', handleGameKeyUp, true);
+    const handleCeilingKeys = (event: KeyboardEvent) => {
+      if (!activeRef.current || isConsolePlaying || event.repeat) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+      const key = event.key.toLowerCase();
+      if (key === 'l') toggleCeilingLighting();
+      else if (key === '1') setCeilingPreset('work');
+      else if (key === '2') setCeilingPreset('gaming');
+      else if (key === '3') setCeilingPreset('creative');
+      else if (key === '4') setCeilingPreset('chill');
+      else return;
+      event.preventDefault(); event.stopImmediatePropagation(); requestRender();
+    };
+    window.addEventListener('keydown', handleCeilingKeys, true);
 
     // Pre-allocate scratch math objects for animation loop & 3D screen quad projection
     const raycaster = new THREE.Raycaster();
     const pointerNdc = new THREE.Vector2();
-    let pointerDownXY: [number, number] | null = null;
+    let pointerDownXY: [number, number, boolean] | null = null;
     const cornerScratch = [
       new THREE.Vector3(),
       new THREE.Vector3(),
@@ -1215,7 +1364,8 @@ export function StudioScene({
     const afterDraw = (next: () => void) => {
       if (disposed) return;
       if (!isSoftwareGl) {
-        rafId = requestAnimationFrame(next);
+        if (ceilingContinuous) window.setTimeout(next, 1000 / CEILING.animation.normalHz);
+        else rafId = requestAnimationFrame(next);
         return;
       }
       if (isWebGL2) {
@@ -1255,8 +1405,11 @@ export function StudioScene({
       const reducedMotion = reducedMotionRef.current;
 
       let needsMoreFrames = false;
+      const ceilingAnimating = assembly.ceilingRig?.tick(dt, now, getCeilingLightingState(), isSoftwareGl, reducedMotion, ceilingRoomLights) ?? false;
+      ceilingContinuous = ceilingAnimating && !reducedMotion && !isSoftwareGl;
+      needsMoreFrames = ceilingAnimating;
 
-      if (walkingRef.current) {
+      if (walkingRef.current && !isRoomProjectsView) {
         const inputX = Number(pressedKeys.has('d') || pressedKeys.has('arrowright')) - Number(pressedKeys.has('a') || pressedKeys.has('arrowleft'));
         const inputY = Number(pressedKeys.has('w') || pressedKeys.has('arrowup')) - Number(pressedKeys.has('s') || pressedKeys.has('arrowdown'));
         const inputMagnitude = Math.hypot(inputX, inputY);
@@ -1268,14 +1421,23 @@ export function StudioScene({
         const rightWorldX = -forwardWorldZ;
         const rightWorldZ = forwardWorldX;
         const targetSpeed = pressedKeys.has('shift') ? SCALE.movement.runSpeed : SCALE.movement.walkSpeed;
-        const desiredX = isResting || isSitting || inputMagnitude === 0 ? 0 : ((rightWorldX * inputX + forwardWorldX * inputY) / inputMagnitude) * targetSpeed;
-        const desiredZ = isResting || isSitting || inputMagnitude === 0 ? 0 : ((rightWorldZ * inputX + forwardWorldZ * inputY) / inputMagnitude) * targetSpeed;
+        const desiredX = isResting || isGettingUp || isSitting || inputMagnitude === 0 ? 0 : ((rightWorldX * inputX + forwardWorldX * inputY) / inputMagnitude) * targetSpeed;
+        const desiredZ = isResting || isGettingUp || isSitting || inputMagnitude === 0 ? 0 : ((rightWorldZ * inputX + forwardWorldZ * inputY) / inputMagnitude) * targetSpeed;
         const velocityBlend = 1 - Math.exp(-SCALE.movement.acceleration * dt);
         movementVelocity.x += (desiredX - movementVelocity.x) * velocityBlend;
         movementVelocity.y += (desiredZ - movementVelocity.y) * velocityBlend;
         if (isResting) {
-          player.root.position.lerp(restingPosition, Math.min(1, dt * 4));
-          player.root.rotation.x = THREE.MathUtils.damp(player.root.rotation.x, -Math.PI / 2, 7, dt);
+          player.root.position.lerp(sleepingPosition, 1 - Math.exp(-5.5 * dt));
+          player.root.quaternion.slerp(sleepingQuaternion, 1 - Math.exp(-5.5 * dt));
+        } else if (isGettingUp) {
+          player.root.position.lerp(wakePosition, 1 - Math.exp(-5.5 * dt));
+          player.root.quaternion.slerp(standingQuaternion, 1 - Math.exp(-5.5 * dt));
+          if (player.root.position.distanceToSquared(wakePosition) < 0.0016 && player.root.quaternion.angleTo(standingQuaternion) < 0.025) {
+            player.root.position.copy(wakePosition);
+            player.root.quaternion.copy(standingQuaternion);
+            isGettingUp = false;
+            setGettingUp(false);
+          }
         } else if (isSitting) {
           player.root.position.lerp(sittingPosition, Math.min(1, dt * 8));
           player.root.rotation.x = THREE.MathUtils.damp(player.root.rotation.x, 0, 7, dt);
@@ -1308,11 +1470,15 @@ export function StudioScene({
           if (isMoving) {
             const desiredYaw = Math.atan2(movementVelocity.x, -movementVelocity.y);
             const yawDelta = THREE.MathUtils.euclideanModulo(desiredYaw - player.root.rotation.y + Math.PI, Math.PI * 2) - Math.PI;
-            player.root.rotation.y += yawDelta * Math.min(1, dt * SCALE.movement.turnRate);
+            player.root.rotation.y += yawDelta * (1 - Math.exp(-SCALE.movement.turnRate * dt));
+            if (Math.abs(inputY) >= Math.abs(inputX) && inputY !== 0) {
+              const cameraFollowDelta = THREE.MathUtils.euclideanModulo(player.root.rotation.y - cameraYaw + Math.PI, Math.PI * 2) - Math.PI;
+              cameraYaw += cameraFollowDelta * (1 - Math.exp(-SCALE.movement.turnRate * dt));
+            }
           }
           walkClock += dt * (7.2 + movementVelocity.length() * 1.9);
         }
-        if (!isResting && !isSitting) {
+        if (!isResting && !isGettingUp && !isSitting) {
           if (!isGrounded || verticalVelocity > 0) {
             verticalVelocity -= 12.5 * dt;
             player.root.position.y += verticalVelocity * dt;
@@ -1326,7 +1492,9 @@ export function StudioScene({
         const playerPosition = player.root.position;
         const nextPrompt: typeof lastGamePrompt = isResting
           ? 'bed'
-          : isSitting
+          : isGettingUp
+            ? null
+            : isSitting
             ? sittingOn
           : Math.abs(playerPosition.x) < 1.4 && playerPosition.z > -0.25 && playerPosition.z < 0.48
           ? 'desk'
@@ -1375,7 +1543,7 @@ export function StudioScene({
         ).normalize();
         const cameraRange = cameraDistance;
         safeCameraRange = Math.min(safeCameraRange, cameraRange);
-        if (!isConsolePlaying && now - lastCameraCollisionCheck > 80) {
+        if (!isConsolePlaying && !isResting && !isGettingUp && now - lastCameraCollisionCheck > 80) {
           cameraTarget.set(
             THREE.MathUtils.clamp(cameraTarget.x, CAMERA_LIMITS.minX, CAMERA_LIMITS.maxX),
             THREE.MathUtils.clamp(cameraTarget.y, CAMERA_LIMITS.minY, CAMERA_LIMITS.maxY),
@@ -1396,14 +1564,18 @@ export function StudioScene({
         cameraDesired.z = THREE.MathUtils.clamp(cameraDesired.z, CAMERA_LIMITS.minZ, CAMERA_LIMITS.maxZ);
         controls.target.lerp(cameraTarget, Math.min(1, dt * 9));
         camera.position.lerp(cameraDesired, Math.min(1, dt * 8));
-        let nearest: THREE.Vector3 | null = null;
-        let nearestDistance = 3.0;
-        for (const target of interactableTargets) {
-          const distance = playerPosition.distanceTo(target);
-          if (distance < nearestDistance) { nearest = target; nearestDistance = distance; }
+        if (isMoving && !isSitting && !isResting) {
+          gazeTarget.set(
+            playerPosition.x + movementVelocity.x * 0.55,
+            playerPosition.y + 1.2,
+            playerPosition.z + movementVelocity.y * 0.55
+          );
+          headDirection.copy(gazeTarget).sub(playerPosition);
+        } else {
+          const zoneTarget = lastGamePrompt ? gazeTargets[lastGamePrompt] : undefined;
+          if (zoneTarget) headDirection.copy(zoneTarget).sub(playerPosition);
+          else cameraDirection.copy(camera.position).sub(playerPosition);
         }
-        if (nearest) headDirection.copy(nearest).sub(playerPosition);
-        else cameraDirection.copy(camera.position).sub(playerPosition);
         const cosYaw = Math.cos(player.root.rotation.y);
         const sinYaw = Math.sin(player.root.rotation.y);
         const localX = headDirection.x * cosYaw + headDirection.z * sinYaw;
@@ -1414,16 +1586,17 @@ export function StudioScene({
         player.spine.rotation.x = dampValue(player.spine.rotation.x, headPitch * 0.3, 5, dt);
         player.head.rotation.y = dampValue(player.head.rotation.y, headYaw * 0.7, 5, dt);
         player.head.rotation.x = dampValue(player.head.rotation.x, headPitch * 0.7, 5, dt);
-        player.torso.scale.y = reducedMotion ? 1 : 1 + Math.sin(now / 620) * 0.004;
+        player.torso.scale.y = reducedMotion ? 1 : 1 + Math.sin(now / (isResting ? 1450 : 620)) * (isResting ? 0.012 : 0.004);
         if (now >= nextBlinkAt) {
           blinkStartedAt = now;
           nextBlinkAt = now + 3200 + Math.random() * 2600;
         }
         const blinkProgress = blinkStartedAt ? (now - blinkStartedAt) / 155 : -1;
-        const eyeOpen = blinkProgress >= 0 && blinkProgress <= 1 ? 1 - 0.94 * Math.sin(blinkProgress * Math.PI) : 1;
+        const eyeOpen = isResting ? 0.12 : blinkProgress >= 0 && blinkProgress <= 1 ? 1 - 0.94 * Math.sin(blinkProgress * Math.PI) : 1;
         for (const [index, eye] of player.eyes.entries()) {
           eye.scale.y = 1.4 * eyeOpen;
-          eye.position.x = (index === 0 ? -0.072 : 0.072) + headYaw * 0.01;
+          eye.position.x = (index === 0 ? -0.072 : 0.072) + headYaw * 0.018;
+          eye.position.y = 0.16 - headPitch * 0.012;
         }
         if (avatarContactShadow) {
           avatarContactShadow.visible = !isResting && !isSitting;
@@ -1584,6 +1757,7 @@ export function StudioScene({
         }
         if (
           FEATURE_FLAGS.ENABLE_AUTO_FAST_MODE &&
+          !isSoftwareGl &&
           (walkingRef.current || isConsolePlaying) &&
           fpsGuard.sample(now)
         ) {
@@ -1630,27 +1804,55 @@ export function StudioScene({
 
     // Click-vs-drag detection on 3D screen
     const handlePointerDown = (e: PointerEvent) => {
-      pointerDownXY = [e.clientX, e.clientY];
-    };
-    const handlePointerMove = (e: PointerEvent) => {
-      if (!activeRef.current || tabletScreens.length === 0) return;
       const rect = renderer.domElement.getBoundingClientRect();
       pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointerNdc, camera);
-      renderer.domElement.style.cursor = raycaster.intersectObjects(tabletScreens, false).length ? 'pointer' : '';
+      const onGithubBoard = githubDashboardScreen ? raycaster.intersectObject(githubDashboardScreen, false).length > 0 : false;
+      pointerDownXY = [e.clientX, e.clientY, onGithubBoard];
+    };
+    const handlePointerMove = (e: PointerEvent) => {
+      if (!activeRef.current) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointerNdc, camera);
+      const githubHit = githubDashboardScreen ? raycaster.intersectObject(githubDashboardScreen, false).length > 0 : false;
+      const switchHit = ceilingSwitchPanel ? raycaster.intersectObject(ceilingSwitchPanel, true).length > 0 : false;
+      if (switchHit !== ceilingSwitchHovered) {
+        ceilingSwitchHovered = switchHit;
+        if (ceilingSwitchButton) ceilingSwitchButton.userData.hovered = switchHit;
+        if (ceilingSwitchButton?.material instanceof THREE.MeshStandardMaterial) ceilingSwitchButton.material.emissiveIntensity = switchHit ? 1.4 : getCeilingLightingState().enabled ? 0.85 : 0.1;
+        setGameToast(switchHit ? copy.lightHotkey : '');
+        requestRender();
+      }
+      renderer.domElement.style.cursor = githubHit || switchHit || raycaster.intersectObjects(tabletScreens, false).length ? 'pointer' : '';
     };
     const handlePointerUp = (e: PointerEvent) => {
       if (!pointerDownXY || !activeRef.current) return;
       const dx = e.clientX - pointerDownXY[0];
       const dy = e.clientY - pointerDownXY[1];
+      const startedOnGithubBoard = pointerDownXY[2];
       pointerDownXY = null;
-      if (Math.hypot(dx, dy) > 6) return;
-
       const rect = renderer.domElement.getBoundingClientRect();
       pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointerNdc, camera);
+      const ceilingSwitchHit = ceilingSwitchPanel ? raycaster.intersectObject(ceilingSwitchPanel, true)[0] : undefined;
+      if (ceilingSwitchHit) {
+        toggleCeilingLighting(); setGameToast(''); requestRender(); return;
+      }
+      const githubDashboardHit = githubDashboardScreen ? raycaster.intersectObject(githubDashboardScreen, false)[0] : undefined;
+      if (githubDashboardHit || startedOnGithubBoard) {
+        if (Math.abs(dy) > 8) {
+          updateGithubDashboard(githubProfileRef.current, repositoriesRef.current, githubLoadingRef.current, githubErrorRef.current, githubDashboardPage + (dy < 0 ? 1 : -1));
+        } else if (Math.hypot(dx, dy) <= 6) {
+          updateGithubDashboard(githubProfileRef.current, repositoriesRef.current, githubLoadingRef.current, githubErrorRef.current, githubDashboardPage + 1);
+        }
+        requestRender();
+        return;
+      }
+      if (Math.hypot(dx, dy) > 6) return;
       const tabletHit = raycaster.intersectObjects(tabletScreens, false)[0];
       if (tabletHit) {
         const screen = tabletHit.object as THREE.Mesh;
@@ -1694,7 +1896,7 @@ export function StudioScene({
       }
     };
     const handleOrbitPointerDown = (event: PointerEvent) => {
-      if (!walkingRef.current || event.button !== 0) return;
+      if (!walkingRef.current || isRoomProjectsView || event.button !== 0) return;
       orbitPointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
       renderer.domElement.setPointerCapture(event.pointerId);
       event.preventDefault();
@@ -1713,7 +1915,20 @@ export function StudioScene({
       if (orbitPointer?.id === event.pointerId) orbitPointer = null;
     };
     const handleGameWheel = (event: WheelEvent) => {
-      if (!walkingRef.current || isSitting) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointerNdc, camera);
+      const dashboardHit = githubDashboardScreen ? raycaster.intersectObject(githubDashboardScreen, false).length > 0 : false;
+      if (dashboardHit) {
+        event.preventDefault();
+        if (Math.abs(event.deltaY) > 2) {
+          updateGithubDashboard(githubProfileRef.current, repositoriesRef.current, githubLoadingRef.current, githubErrorRef.current, githubDashboardPage + (event.deltaY > 0 ? 1 : -1));
+          requestRender();
+        }
+        return;
+      }
+      if (!walkingRef.current || isSitting || isRoomProjectsView) return;
       event.preventDefault();
       cameraDistance = Math.max(
         SCALE.thirdPersonCamera.minDistance,
@@ -1826,9 +2041,11 @@ export function StudioScene({
         syncYoutubeOverlay();
       },
       setWalking,
+      viewProjects,
+      returnToRoom,
       moveKey,
       jump: () => {
-        if (!walkingRef.current || !isGrounded || isSitting || isResting || isConsolePlaying) return;
+        if (!walkingRef.current || !isGrounded || isSitting || isResting || isGettingUp || isConsolePlaying) return;
         verticalVelocity = 4.3; isGrounded = false; requestRender();
       },
       interact,
@@ -1839,12 +2056,14 @@ export function StudioScene({
           interaction.confirm();
           syncInteraction();
         }
-        else setGameToast('Assieds-toi sur le canapé pour jouer à la console.');
+        else setGameToast('Assieds-toi sur le canapÃ© pour jouer Ã  la console.');
       },
       consoleAction,
       restartConsoleGame: () => { setConsoleGame(true); },
       setDeskCode: updateDeskCode,
       animateSpeech,
+      updateGithubDashboard,
+      requestRender,
     };
 
     if (activeRef.current) {
@@ -1857,6 +2076,7 @@ export function StudioScene({
       window.removeEventListener('resize', handleResize);
       document.removeEventListener('visibilitychange', handlePageVisibility);
       window.removeEventListener('keydown', handleGameKeyDown, true);
+      window.removeEventListener('keydown', handleCeilingKeys, true);
       window.removeEventListener('keyup', handleGameKeyUp, true);
       window.clearTimeout(toastTimer);
       setGameToast('');
@@ -1915,7 +2135,11 @@ export function StudioScene({
 
   useEffect(() => {
     apiRef.current?.repaint();
-  }, [portfolioView, portfolioPage, repositories, courses]);
+  }, [portfolioView, portfolioPage, repositories, courses, githubProfile, githubLoading, githubError]);
+
+  useEffect(() => {
+    apiRef.current?.updateGithubDashboard(githubProfile, repositories, githubLoading, githubError);
+  }, [githubProfile, repositories, githubLoading, githubError]);
 
   useEffect(() => {
     apiRef.current?.syncOverlay();
@@ -1927,7 +2151,7 @@ export function StudioScene({
         ref={hostRef}
         data-testid="three-studio-canvas"
         className="three-canvas-host"
-        aria-label="Interactive 3D laptop case study showcase — drag to orbit, click screen for next case"
+        aria-label="Interactive 3D laptop case study showcase â€” drag to orbit, click screen for next case"
       />
       <div
         ref={videoOverlayRef}
@@ -1943,17 +2167,17 @@ export function StudioScene({
                   className="three-video-close"
                   onClick={onCloseYoutube}
                 >
-                  ← Photo Mode
+                  â† Photo Mode
                 </button>
               )}
-              <span className="three-video-title">YouTube · @tahaboulhak1172</span>
+              <span className="three-video-title">YouTube Â· @tahaboulhak1172</span>
               <a
                 className="three-video-ext"
                 href={`https://www.youtube.com/watch?v=${youtubeVideoId}`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Watch ↗
+                Watch â†—
               </a>
             </div>
             <iframe
@@ -1967,6 +2191,7 @@ export function StudioScene({
           </div>
         )}
       </div>
+      {active && <CeilingLightHud lang={lang} onChange={() => apiRef.current?.requestRender()} />}
       {active && <div className={`room-game-ui ${walking ? 'is-walking' : ''}`}>
         <button
           type="button"
@@ -1974,17 +2199,17 @@ export function StudioScene({
           onClick={() => apiRef.current?.setWalking(!walking)}
           aria-pressed={walking}
         >
-          <span aria-hidden="true">{walking ? '↩' : '▶'}</span>
+          <span aria-hidden="true">{walking ? 'â†©' : 'â–¶'}</span>
           {walking ? copy.leaveRoom : copy.exploreRoom}
         </button>
-        {walking && <>
-          <div className="room-game-hint"><strong>{consolePlaying ? 'NEON DODGE' : copy.exploreRoom}</strong><span>{consolePlaying ? copy.gameControls : copy.controls}</span></div>
+        {walking && !roomProjectsView && <>
+          {!resting && <div className="room-game-hint"><strong>{consolePlaying ? 'NEON DODGE' : copy.exploreRoom}</strong><span>{consolePlaying ? copy.gameControls : copy.controls}</span></div>}
           {FEATURE_FLAGS.ENABLE_DEBUG_STATE_OVERLAY && <output className="room-state-debug" aria-live="polite">{interactionState}</output>}
-          {gamePrompt && <button type="button" className="room-game-action" onClick={() => apiRef.current?.interact()}>
+          {gamePrompt && !resting && <button type="button" className="room-game-action" onClick={() => apiRef.current?.interact()}>
             <kbd>E</kbd>{gamePrompt === 'desk'
             ? sitting ? copy.stand : copy.sitDesk
               : gamePrompt === 'gaming'
-                ? sitting ? 'Se relever' : 'S’asseoir au setup gaming'
+                ? sitting ? 'Se relever' : 'Sâ€™asseoir au setup gaming'
               : gamePrompt === 'sofa'
                 ? sitting ? consolePlaying ? copy.stand : copy.stand : copy.sitCouch
                 : gamePrompt === 'podcast'
@@ -1997,61 +2222,65 @@ export function StudioScene({
                   ? copy.leaveRoom
                 : gamePrompt === 'tv'
                   ? tvOn ? copy.turnOff : copy.turnOn
-                  : resting ? 'Se relever' : 'S’allonger sur le lit'}
+                  : resting ? copy.wake : copy.lieDown}
           </button>}
           {sitting && (gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && <section className="room-desk-workspace" aria-label="Espace de travail du personnage">
             <div className="room-desk-workspace-head"><span className="room-desk-live-dot" />STUDIO PERSONNEL <small>SESSION ACTIVE</small></div>
-            <div className="room-desk-tabs" role="tablist" aria-label="Activités du personnage">
-              {([['talk', 'Parler'], ['write', 'Écrire'], ['code', 'Coder']] as const).map(([mode, label]) => <button
+            {gamePrompt === 'podcast' && <div className="room-desk-panel-content">
+              <p className="room-desk-intro">{lang === 'fr' ? 'Le personnage te pr\u00e9sente son parcours dans la langue choisie.' : 'The character will introduce himself in your selected language.'}</p>
+              <button type="button" className="room-desk-submit" onClick={presentCharacter}>{copy.presentMe} ({lang.toUpperCase()})</button>
+            </div>}
+            <div className="room-desk-tabs" role="tablist" aria-label="ActivitÃ©s du personnage">
+              {([['talk', 'Parler'], ['write', 'Ã‰crire'], ['code', 'Coder']] as const).map(([mode, label]) => <button
                 key={mode} type="button" role="tab" aria-selected={deskMode === mode}
                 className={deskMode === mode ? 'is-active' : ''} onClick={() => chooseDeskMode(mode)}
               >{label}</button>)}
             </div>
-            {!deskMode && <p className="room-desk-intro">Choisis une activité : le personnage te répondra, écrira une note ou tapera du code sur son écran.</p>}
+            {!deskMode && <p className="room-desk-intro">Choisis une activitÃ© : le personnage te rÃ©pondra, Ã©crira une note ou tapera du code sur son Ã©cran.</p>}
             {deskMode === 'talk' && <div className="room-desk-panel-content">
               <label htmlFor="room-character-message">Message du personnage</label>
-              <textarea id="room-character-message" value={deskDraft} onChange={(event) => setDeskDraft(event.target.value)} placeholder="Écris ce que le personnage doit dire…" rows={3} maxLength={220} />
+              <textarea id="room-character-message" value={deskDraft} onChange={(event) => setDeskDraft(event.target.value)} placeholder="Ã‰cris ce que le personnage doit direâ€¦" rows={3} maxLength={220} />
               <button type="button" className="room-desk-submit" onClick={submitDeskText}>Faire parler le personnage</button>
-              {deskMessage && <p className="room-desk-feedback">« {deskMessage} »</p>}
+              {deskMessage && <p className="room-desk-feedback">Â« {deskMessage} Â»</p>}
             </div>}
             {deskMode === 'write' && <div className="room-desk-panel-content">
               <label htmlFor="room-character-note">Carnet de notes</label>
-              <textarea id="room-character-note" value={deskDraft} onChange={(event) => setDeskDraft(event.target.value)} placeholder="Écris une idée ou une note…" rows={3} maxLength={500} />
+              <textarea id="room-character-note" value={deskDraft} onChange={(event) => setDeskDraft(event.target.value)} placeholder="Ã‰cris une idÃ©e ou une noteâ€¦" rows={3} maxLength={500} />
               <button type="button" className="room-desk-submit" onClick={submitDeskText}>Enregistrer la note</button>
               {deskNotes.map((note, index) => <p className="room-desk-note" key={`${index}-${note}`}>{note}</p>)}
             </div>}
             {deskMode === 'code' && <div className="room-desk-panel-content">
-              <label htmlFor="room-character-code">mon-projet.ts <span>TypeScript · VS Code</span></label>
+              <label htmlFor="room-character-code">mon-projet.ts <span>TypeScript Â· VS Code</span></label>
               <textarea id="room-character-code" className="room-desk-code" spellCheck={false} value={deskCode} onChange={(event) => {
                 setDeskCode(event.target.value); apiRef.current?.setDeskCode(event.target.value);
-              }} rows={8} aria-label="Éditeur de code du personnage" />
-              <div className="room-desk-code-status"><span>●</span> Le code apparaît sur l’écran du bureau · {deskCode.split('\n').length} lignes</div>
+              }} rows={8} aria-label="Ã‰diteur de code du personnage" />
+              <div className="room-desk-code-status"><span>â—</span> Le code apparaÃ®t sur lâ€™Ã©cran du bureau Â· {deskCode.split('\n').length} lignes</div>
             </div>}
           </section>}
           {sitting && gamePrompt === 'sofa' && !consolePlaying && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.playConsole()}>{copy.playConsole}</button>}
-          {sitting && !consolePlaying && gamePrompt !== 'sofa' && !((gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && deskMode) && <button type="button" className="room-game-secondary" onClick={() => { apiRef.current?.setWalking(false); onGameInteractRef.current?.(); }}>Voir le portfolio</button>}
+          {sitting && !consolePlaying && gamePrompt !== 'sofa' && !((gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && deskMode) && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.viewProjects()}>{copy.viewProjects}</button>}
           {consolePlaying && <>
             {consoleGameOver && <section className="room-console-game-over" role="status">
               <strong>{copy.gameOverTitle}</strong>
-              <span>{copy.score} {consoleScore} · {copy.best} {consoleBestScore}</span>
+              <span>{copy.score} {consoleScore} Â· {copy.best} {consoleBestScore}</span>
               <span>{copy.restartKeys}</span>
               <button type="button" onClick={() => apiRef.current?.restartConsoleGame()}>{copy.restart}</button>
               <button type="button" onClick={() => apiRef.current?.interact()}>{copy.exitGame}</button>
             </section>}
             {!consoleGameOver && <div className="room-game-console-controls" aria-label="NEON DODGE touch controls">
-              <button type="button" aria-label="Move left" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.moveKey('a', true); }}>←</button>
-              <button type="button" aria-label="Move right" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.moveKey('d', true); }}>→</button>
+              <button type="button" aria-label="Move left" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.moveKey('a', true); }}>â†</button>
+              <button type="button" aria-label="Move right" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.moveKey('d', true); }}>â†’</button>
               <button type="button" aria-label={copy.shield} onClick={() => apiRef.current?.consoleAction()}>Dash</button>
               <button type="button" aria-label="Exit game" onClick={() => apiRef.current?.interact()}>Exit</button>
             </div>}
           </>}
           {gameToast && <div className="room-game-toast" role="status">{gameToast}</div>}
-          <div className="room-game-pad" aria-label="Commandes de déplacement">
+          {!resting && !sitting && !gettingUp && <div className="room-game-pad" aria-label="Commandes de dÃ©placement">
             {[
-              ['ArrowUp', '↑', 'Avancer'],
-              ['ArrowLeft', '←', 'Aller à gauche'],
-              ['ArrowDown', '↓', 'Reculer'],
-              ['ArrowRight', '→', 'Aller à droite'],
+              ['ArrowUp', 'â†‘', 'Avancer'],
+              ['ArrowLeft', 'â†', 'Aller Ã  gauche'],
+              ['ArrowDown', 'â†“', 'Reculer'],
+              ['ArrowRight', 'â†’', 'Aller Ã  droite'],
             ].map(([key, icon, label]) => <button
               key={key}
               type="button"
@@ -2061,11 +2290,21 @@ export function StudioScene({
               onPointerCancel={() => apiRef.current?.moveKey(key, false)}
               onLostPointerCapture={() => apiRef.current?.moveKey(key, false)}
             >{icon}</button>)}
-            <button type="button" aria-label="Sauter" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.jump(); }}>↥</button>
-          </div>
+            <button type="button" aria-label="Sauter" onPointerDown={(event) => { event.preventDefault(); apiRef.current?.jump(); }}>â†¥</button>
+          </div>}
         </>}
+        {walking && resting && <section className="room-rest-card" aria-live="polite">
+          <span className="room-rest-moon" aria-hidden="true">ZZZ</span>
+          <strong>{copy.sleepingTitle}</strong>
+          <small>{copy.sleepingHint}</small>
+          <button type="button" onClick={() => apiRef.current?.interact()}>{copy.wake}</button>
+        </section>}
+        {walking && roomProjectsView && <section className="room-project-gallery-ui" aria-live="polite">
+          <span>{copy.galleryTitle}</span><small>Projets complets \u00b7 mur arri\u00e8re</small>
+          <button type="button" onClick={() => apiRef.current?.returnToRoom()}><kbd>ESC</kbd>{copy.returnToRoom}</button>
+        </section>}
       </div>}
-      {active && avatarLoading && <div className="avatar-loading" role="status">Chargement du personnage…</div>}
+      {active && avatarLoading && <div className="avatar-loading" role="status">Chargement du personnageâ€¦</div>}
     </div>
   );
 }
