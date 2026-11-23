@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ControlDock } from './components/ControlDock';
+import { UIButton } from './components/UIButton';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { FastModePage } from './components/FastModePage';
 import { LoadingScreen } from './components/LoadingScreen';
@@ -701,61 +702,35 @@ export default function App() {
       </div>
 
       {/* Fixed UI Layer */}
-      <div className={`ui ${pose.mobile ? 'mob' : ''}`}>
-        <button type="button" className="tag t1" id="b1" onClick={toHero}>
-          {copy.home}
-        </button>
-        <button type="button" className="tag t2" id="b2" onClick={() => enter3DView('projects')}>
-          {copy.projects}
-        </button>
-        <a
-          className="tag t3"
-          id="b3"
-          href="#contact"
-          onClick={(e) => {
-            e.preventDefault();
-            enter3DView('contact');
-          }}
-        >
-          {copy.contact}
-        </a>
-        <button type="button" className="tag all-projects-tag" onClick={() => enter3DView('projects')}>
-          {copy.allProjects}
-        </button>
-        <button type="button" className="tag about-tag" onClick={() => enter3DView('about')}>
-          {copy.about}
-        </button>
-        <button type="button" className="tag t4" onClick={() => { track('hire_me_clicked', { source: 'sticky' }); setContactOpen(true); }}>
-          {copy.hire}
-        </button>
-        <button type="button" className="language-toggle" onClick={() => setLang((current) => current === 'en' ? 'fr' : 'en')} aria-label={copy.language}>{lang.toUpperCase()}</button>
-
-        {FEATURE_FLAGS.ENABLE_FAST_MODE && (
-          <button
-            type="button"
-            className="fast-mode-toggle"
-            onClick={() => enterFastMode('user-toggle')}
-            title="Switch to the lightweight 2D version"
-          >
-            Fast mode
-          </button>
-        )}
+        <div className={`ui ${pose.mobile ? 'mob' : ''}`} data-ui="hud">
+        <header className="hud-topbar" data-ui="topbar">
+          <nav className="hud-nav hud-nav-left" aria-label="Main navigation" data-ui="main-navigation">
+            <UIButton variant="primary" name="home" className="tag t1" id="b1" onClick={toHero}>{copy.home}</UIButton>
+            <UIButton variant="primary" name="projects" className="tag t2" id="b2" onClick={() => enter3DView('projects')}>{copy.projects}</UIButton>
+            <UIButton variant="primary" name="about" className="tag about-tag" onClick={() => enter3DView('about')}>{copy.about}</UIButton>
+          </nav>
+          <UIButton variant="ghost" name="brand-home" className="logo" id="lg2" onClick={toHero}>{PROFILE.wordmark}</UIButton>
+          <nav className="hud-nav hud-nav-right" aria-label="Contact actions" data-ui="contact-navigation">
+            <UIButton variant="primary" name="contact" className="tag t3" onClick={() => enter3DView('contact')}>{copy.contact}</UIButton>
+            <UIButton variant="accent" name="hire" className="tag t4" onClick={() => { track('hire_me_clicked', { source: 'sticky' }); setContactOpen(true); }}>{copy.hire}</UIButton>
+          </nav>
+        </header>
+        <aside className="hud-right-rail" aria-label="Display controls" data-ui="right-rail">
+          <UIButton variant="pill-toggle" name="language" className="language-toggle" onClick={() => setLang((current) => current === 'en' ? 'fr' : 'en')} aria-label={copy.language}>{lang.toUpperCase()}</UIButton>
+          {FEATURE_FLAGS.ENABLE_FAST_MODE && <UIButton variant="ghost" name="fast-mode" className="fast-mode-toggle" onClick={() => enterFastMode('user-toggle')} title="Switch to the lightweight 2D version">{copy.fastMode}</UIButton>}
+        </aside>
 
         {gpuWarning && (
-          <div className="gpu-warning" role="alert">
+          <div className="gpu-warning" role="alert" data-ui="gpu-warning">
             <span>Graphics context was lost.</span>
             <button type="button" onClick={() => enterFastMode('context-lost')}>Switch to Fast mode</button>
             <button type="button" onClick={() => setGpuWarning(false)} aria-label="Dismiss">×</button>
           </div>
         )}
 
-        <button type="button" className="logo" id="lg2" onClick={toHero}>
-          {PROFILE.wordmark}
-        </button>
-
-        {immersivePortfolio && mode === 'case' && <nav className="immersive-nav" aria-label="3D portfolio sections">
-          <span className="immersive-nav-label">3D PORTFOLIO</span>
-          {(['projects', 'repositories', 'github', 'courses', 'about', 'skills', 'contact'] as PortfolioScreenView[]).map((view) => <button type="button" key={view} className={catalogTab === view ? 'is-active' : ''} onClick={() => enter3DView(view)}>{view === 'repositories' ? 'Repos' : view === 'courses' ? 'Courses' : view === 'github' ? 'GitHub' : view}</button>)}
+        {immersivePortfolio && mode === 'case' && <nav className="immersive-nav" aria-label="3D portfolio sections" data-ui="immersive-nav">
+          <UIButton variant="ghost" name="all-projects" className="immersive-nav-label" onClick={() => enter3DView('projects')}>{copy.allProjects}</UIButton>
+          {(['repositories', 'github', 'courses', 'about', 'skills', 'contact'] as PortfolioScreenView[]).map((view) => <UIButton variant="ghost" name={`section-${view}`} key={view} className={catalogTab === view ? 'is-active' : ''} onClick={() => enter3DView(view)}>{view === 'repositories' ? 'Repos' : view === 'courses' ? 'Courses' : view === 'github' ? 'GitHub' : view}</UIButton>)}
           <span className="immersive-nav-divider" />
           <button type="button" aria-label="Previous 3D screen page" onClick={() => setPortfolioPage((page) => Math.max(0, page - 1))}>←</button>
           <button type="button" aria-label="Next 3D screen page" onClick={() => setPortfolioPage((page) => page + 1)}>→</button>
@@ -770,6 +745,7 @@ export default function App() {
           ref={ticketRef}
           className={`ticket ${mode === 'case' && caseVisible ? 'is-in' : ''}`}
           id="tk"
+          data-ui="project-ticket"
         >
           <i />
           <i />
@@ -787,6 +763,7 @@ export default function App() {
           ref={descRef}
           className={`desc ${mode === 'case' && caseVisible ? 'is-in' : ''}`}
           id="ds"
+          data-ui="project-description"
         >
           <div className="k" id="dk">
             {activeCase.key}
@@ -827,6 +804,7 @@ export default function App() {
           type="button"
           className={`nc prev ${caseIndex === 0 ? 'dim' : ''}`}
           id="pv"
+          data-ui="previous-project"
           onClick={prevCase}
         >
           <div className="c">
@@ -840,7 +818,7 @@ export default function App() {
           </span>
         </button>
 
-        <button type="button" className="nc next" id="nx" onClick={nextCase}>
+        <button type="button" className="nc next" id="nx" data-ui="next-project" onClick={nextCase}>
           <div className="c">
             <svg viewBox="0 0 24 24">
               <path d="M5 12h14M13 6l6 6-6 6" />
