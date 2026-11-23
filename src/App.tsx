@@ -4,6 +4,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { FastModePage } from './components/FastModePage';
 import { LoadingScreen } from './components/LoadingScreen';
 import { FEATURE_FLAGS } from './config/perf';
+import { COPY, LANG, type Language } from './config/copy';
 import {
   CAMERA_PRESETS,
   CASES,
@@ -52,6 +53,8 @@ interface TikTokPage {
 
 export default function App() {
   const [mode, setMode] = useState<PortfolioMode>('hero');
+  const [lang, setLang] = useState<Language>(LANG);
+  const copy = COPY[lang];
   const [diving, setDiving] = useState(false);
   const [caseIndex, setCaseIndex] = useState(0);
   const [swapTick, setSwapTick] = useState(0);
@@ -442,10 +445,16 @@ export default function App() {
   const activeCase = CASES[caseIndex];
   const heroLayout = pose.heroLayout;
 
+  useEffect(() => {
+    if (mode === 'case') track('project_opened', { project: activeCase.id });
+  }, [mode, caseIndex, activeCase.id, track]);
+
   if (fastMode) {
     return (
       <>
         <FastModePage
+          lang={lang}
+          onToggleLanguage={() => setLang((current) => current === 'en' ? 'fr' : 'en')}
           canEnter3D={deviceTier.webgl}
           onEnter3D={() => {
             track('enter_3d_requested', { from: 'fast' });
@@ -478,6 +487,7 @@ export default function App() {
           >
             <Suspense fallback={<div className="gpu-fallback" role="status">Loading 3D studio…</div>}>
               <StudioScene
+                lang={lang}
                 active={mode === 'case'}
                 caseStudy={activeCase}
                 finish={finish}
@@ -643,10 +653,10 @@ export default function App() {
       {/* Fixed UI Layer */}
       <div className={`ui ${pose.mobile ? 'mob' : ''}`}>
         <button type="button" className="tag t1" id="b1" onClick={toHero}>
-          home
+          {copy.home}
         </button>
         <button type="button" className="tag t2" id="b2" onClick={() => enter3DView('projects')}>
-          projects
+          {copy.projects}
         </button>
         <a
           className="tag t3"
@@ -657,17 +667,18 @@ export default function App() {
             enter3DView('contact');
           }}
         >
-          contact
+          {copy.contact}
         </a>
         <button type="button" className="tag all-projects-tag" onClick={() => enter3DView('projects')}>
-          all projects
+          {copy.allProjects}
         </button>
         <button type="button" className="tag about-tag" onClick={() => enter3DView('about')}>
-          about
+          {copy.about}
         </button>
-        <a className="tag t4" href={`mailto:${PROFILE.email}`}>
-          hire me
-        </a>
+        <button type="button" className="tag t4" onClick={() => { track('hire_me_clicked', { source: 'sticky' }); setContactOpen(true); }}>
+          {copy.hire}
+        </button>
+        <button type="button" className="language-toggle" onClick={() => setLang((current) => current === 'en' ? 'fr' : 'en')} aria-label={copy.language}>{lang.toUpperCase()}</button>
 
         {FEATURE_FLAGS.ENABLE_FAST_MODE && (
           <button
@@ -735,12 +746,12 @@ export default function App() {
             0{caseIndex + 1} / 0{CASES.length}
           </div>
           <div className="desc-links">
-            <a id="dl" href={activeCase.repo} target="_blank" rel="noopener noreferrer">
-              view code →
+            <a id="dl" href={activeCase.repo} target="_blank" rel="noopener noreferrer" onClick={() => track('view_code_clicked', { project: activeCase.id })}>
+              {copy.viewCode} →
             </a>
             {activeCase.liveUrl && (
-              <a href={activeCase.liveUrl} target="_blank" rel="noopener noreferrer">
-                live app ↗
+              <a href={activeCase.liveUrl} target="_blank" rel="noopener noreferrer" onClick={() => track('live_app_clicked', { project: activeCase.id })}>
+                {copy.liveApp} ↗
               </a>
             )}
             {activeCase.youtubeId && (
@@ -957,7 +968,7 @@ export default function App() {
           >
             ×
           </button>
-          <h5>contact</h5>
+          <h5>{copy.contact}</h5>
           <a href={`mailto:${PROFILE.email}`}>{PROFILE.email}</a>
           <a href={PROFILE.github} target="_blank" rel="noopener noreferrer">
             GitHub · tahabk02

@@ -12,6 +12,7 @@ import {
   type ChassisFinish,
 } from '../data/portfolio';
 import { PERF, FEATURE_FLAGS } from '../config/perf';
+import { COPY, type Language } from '../config/copy';
 import { CAMERA_LIMITS, COLLISION, ROOM_COLLIDERS } from '../config/colliders';
 import { resolvePlanarMove, pushOutOfColliders } from '../lib/collision';
 import { InteractionMachine, type InteractionState, type SeatZone } from '../lib/interactionState';
@@ -303,6 +304,7 @@ function logRoomScaleAudit(roomRoot: THREE.Object3D) {
 }
 
 interface StudioSceneProps {
+  lang: Language;
   active: boolean;
   caseStudy: CaseStudy;
   finish: ChassisFinish;
@@ -343,6 +345,7 @@ function getResponsivePreset(p: CameraPreset, aspect: number) {
 }
 
 export function StudioScene({
+  lang,
   active,
   caseStudy,
   finish,
@@ -360,6 +363,7 @@ export function StudioScene({
   onLowPerformance,
   onContextLost,
 }: StudioSceneProps) {
+  const copy = COPY[lang];
   const hostRef = useRef<HTMLDivElement | null>(null);
   const videoOverlayRef = useRef<HTMLDivElement | null>(null);
   const [walking, setWalkingState] = useState(false);
@@ -1913,20 +1917,20 @@ export function StudioScene({
           aria-pressed={walking}
         >
           <span aria-hidden="true">{walking ? '↩' : '▶'}</span>
-          {walking ? 'Quitter la chambre' : 'Explorer ma chambre'}
+          {walking ? copy.leaveRoom : copy.exploreRoom}
         </button>
         {walking && <>
-          <div className="room-game-hint"><strong>{consolePlaying ? 'NEON DODGE' : 'Explore ta chambre'}</strong><span>{consolePlaying ? 'WASD / flèches pour esquiver · E pour arrêter · Espace pour le bouclier' : 'WASD / flèches · Shift pour courir · glisse pour tourner la caméra'}</span></div>
+          <div className="room-game-hint"><strong>{consolePlaying ? 'NEON DODGE' : (lang === 'fr' ? 'Explore ta chambre' : 'Explore the room')}</strong><span>{copy.controls}</span></div>
           {FEATURE_FLAGS.ENABLE_DEBUG_STATE_OVERLAY && <output className="room-state-debug" aria-live="polite">{interactionState}</output>}
           {gamePrompt && <button type="button" className="room-game-action" onClick={() => apiRef.current?.interact()}>
             <kbd>E</kbd>{gamePrompt === 'desk'
-              ? sitting ? 'Se relever' : 'S’asseoir au bureau'
+            ? sitting ? copy.stand : copy.sitDesk
               : gamePrompt === 'gaming'
                 ? sitting ? 'Se relever' : 'S’asseoir au setup gaming'
               : gamePrompt === 'sofa'
-                ? sitting ? consolePlaying ? 'Quitter le jeu' : 'Se relever' : 'S’asseoir sur le canapé'
+                ? sitting ? consolePlaying ? copy.stand : copy.stand : copy.sitCouch
                 : gamePrompt === 'podcast'
-                  ? sitting ? 'Se relever' : 'S’asseoir au canapé'
+                  ? sitting ? copy.stand : copy.sitPodcast
                 : gamePrompt === 'gym'
                   ? 'Commencer une séance'
                 : gamePrompt === 'lamp'
@@ -1968,7 +1972,7 @@ export function StudioScene({
           </section>}
           {sitting && gamePrompt === 'sofa' && !consolePlaying && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.playConsole()}>Jouer à la console</button>}
           {sitting && !consolePlaying && gamePrompt !== 'sofa' && !((gamePrompt === 'desk' || gamePrompt === 'gaming' || gamePrompt === 'podcast') && deskMode) && <button type="button" className="room-game-secondary" onClick={() => { apiRef.current?.setWalking(false); onGameInteractRef.current?.(); }}>Voir le portfolio</button>}
-          {consolePlaying && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.consoleAction()}>Activer le bouclier</button>}
+          {consolePlaying && <button type="button" className="room-game-secondary" onClick={() => apiRef.current?.consoleAction()}>{copy.shield}</button>}
           {gameToast && <div className="room-game-toast" role="status">{gameToast}</div>}
           <div className="room-game-pad" aria-label="Commandes de déplacement">
             {[
