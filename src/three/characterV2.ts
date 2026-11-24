@@ -312,29 +312,144 @@ function buildArms(materials: ReturnType<typeof createMaterials>, shoulderHalf: 
   return { arms, elbows };
 }
 
-function buildHead(materials: ReturnType<typeof createMaterials>) {
+function makeRng(seed: number) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 4294967296;
+  };
+}
+
+function buildHead(materials: ReturnType<typeof createMaterials>, lowQuality: boolean) {
+  const hw = CHAR_DIM.headWidth;
+  const hh = CHAR_DIM.headHeight;
+  const hd = CHAR_DIM.headDepth;
+  const eyeY = V2_ANCHORS.eyeBaseY;
+  const eyeX = V2_ANCHORS.eyeBaseX;
+  const front = -hd * 0.5;
+
   const head = new THREE.Group();
   head.name = 'avatar-head';
   head.position.set(0, CHAR_DIM.headLocalY, 0);
 
-  const face = mergeMesh([
-    part(new THREE.SphereGeometry(1, 20, 16), C.skin, [0, CHAR_DIM.headHeight * 0.5, 0], [0, 0, 0],
-      [CHAR_DIM.headWidth * 0.5, CHAR_DIM.headHeight * 0.5, CHAR_DIM.headDepth * 0.5]),
-  ], materials.skin, 'avatar-face');
-  head.add(face);
-
-  const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.03, 14, 10), materials.skin);
-  const mouthColors = new Float32Array(mouth.geometry.attributes.position.count * 3);
-  const lipColor = new THREE.Color(C.lip);
-  for (let i = 0; i < mouthColors.length; i += 3) {
-    mouthColors[i] = lipColor.r; mouthColors[i + 1] = lipColor.g; mouthColors[i + 2] = lipColor.b;
+  const skinPieces: THREE.BufferGeometry[] = [
+    part(new THREE.SphereGeometry(1, 22, 16), C.skin, [0, hh * 0.53, 0], [0, 0, 0], [hw * 0.5, hh * 0.46, hd * 0.5]),
+    part(new THREE.SphereGeometry(1, 18, 12), C.skin, [0, hh * 0.27, -hd * 0.03], [0, 0, 0], [hw * 0.42, hh * 0.3, hd * 0.43]),
+    part(new THREE.SphereGeometry(1, 14, 10), C.skin, [0, hh * 0.08, -hd * 0.26], [0, 0, 0], [hw * 0.16, hh * 0.11, hd * 0.16]),
+    part(new THREE.SphereGeometry(1, 12, 10), C.skinShadow, [0, hh * 0.2, front * 0.66], [0, 0, 0], [hw * 0.14, hh * 0.12, hd * 0.12]),
+  ];
+  for (const side of [-1, 1]) {
+    skinPieces.push(part(new THREE.SphereGeometry(1, 12, 10), C.skin, [side * hw * 0.49, hh * 0.44, 0], [0, 0, 0], [hw * 0.1, hh * 0.17, hd * 0.11]));
+    skinPieces.push(part(new THREE.SphereGeometry(1, 10, 8), C.skinShadow, [side * hw * 0.5, hh * 0.44, -hd * 0.01], [0, 0, 0], [hw * 0.05, hh * 0.11, hd * 0.07]));
+    skinPieces.push(part(new THREE.SphereGeometry(1, 10, 8), C.skin, [side * hw * 0.2, hh * 0.38, front * 0.82], [0, 0, 0], [hw * 0.15, hh * 0.1, hd * 0.12]));
   }
-  mouth.geometry.setAttribute('color', new THREE.BufferAttribute(mouthColors, 3));
-  mouth.scale.set(1, V2_ANCHORS.mouthClosedScaleY, 0.7);
-  mouth.position.set(0, CHAR_DIM.eyeLocalY - CHAR_DIM.headHeight * 0.34, -CHAR_DIM.headDepth * 0.46);
+  skinPieces.push(part(new THREE.CapsuleGeometry(hw * 0.075, hh * 0.12, 4, 10), C.skinLight, [0, hh * 0.44, front * 0.9], [0.32, 0, 0], [1, 1, 0.9]));
+  skinPieces.push(part(new THREE.SphereGeometry(1, 12, 10), C.skinLight, [0, hh * 0.37, front * 1.04], [0, 0, 0], [hw * 0.09, hh * 0.075, hd * 0.1]));
+  head.add(mergeMesh(skinPieces, materials.skin, 'avatar-face'));
+
+  const hairPieces: THREE.BufferGeometry[] = [];
+  for (const side of [-1, 1]) {
+    hairPieces.push(part(new THREE.BoxGeometry(hw * 0.24, hh * 0.045, hd * 0.06), C.hair,
+      [side * eyeX, eyeY + hh * 0.13, front * 0.95], [0, 0, side * 0.1]));
+    hairPieces.push(part(new THREE.SphereGeometry(1, 10, 8), C.beard, [side * hw * 0.3, hh * 0.17, front * 0.62], [0, 0, 0], [hw * 0.13, hh * 0.13, hd * 0.12]));
+    hairPieces.push(part(new THREE.SphereGeometry(1, 10, 8), C.beard, [side * hw * 0.34, hh * 0.29, front * 0.62], [0, 0, 0], [hw * 0.1, hh * 0.12, hd * 0.1]));
+  }
+  hairPieces.push(part(new THREE.SphereGeometry(1, 14, 10), C.beard, [0, hh * 0.11, front * 0.82], [0, 0, 0], [hw * 0.24, hh * 0.16, hd * 0.14]));
+  hairPieces.push(part(new THREE.SphereGeometry(1, 12, 8), C.beard, [0, hh * 0.27, front * 0.98], [0, 0, 0], [hw * 0.19, hh * 0.05, hd * 0.07]));
+  hairPieces.push(part(new THREE.SphereGeometry(1, 10, 8), C.beard, [0, hh * 0.03, -hd * 0.16], [0, 0, 0], [hw * 0.17, hh * 0.08, hd * 0.16]));
+  head.add(mergeMesh(hairPieces, materials.hair, 'avatar-facial-hair'));
+
+  const hairRoot = new THREE.Group();
+  hairRoot.name = 'avatar-hair';
+  head.add(hairRoot);
+  hairRoot.add(mergeMesh([
+    part(new THREE.SphereGeometry(1, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.62), C.hair,
+      [0, hh * 0.58, hd * 0.02], [0, 0, 0], [hw * 0.54, hh * 0.45, hd * 0.55]),
+    part(new THREE.SphereGeometry(1, 12, 10), C.hair, [-hw * 0.47, hh * 0.43, hd * 0.02], [0, 0, 0], [hw * 0.09, hh * 0.16, hd * 0.2]),
+    part(new THREE.SphereGeometry(1, 12, 10), C.hair, [hw * 0.47, hh * 0.43, hd * 0.02], [0, 0, 0], [hw * 0.09, hh * 0.16, hd * 0.2]),
+    part(new THREE.SphereGeometry(1, 14, 10), C.hair, [0, hh * 0.4, hd * 0.42], [0, 0, 0], [hw * 0.5, hh * 0.24, hd * 0.18]),
+  ], materials.hair, 'avatar-hair-cap'));
+
+  const curlCount = lowQuality ? 0 : CHARACTER.hair.curlCount;
+  if (curlCount > 0) {
+    const rng = makeRng(1337);
+    const curlGeometry = prep(new THREE.IcosahedronGeometry(1, 0), '#ffffff');
+    const curls = new THREE.InstancedMesh(curlGeometry, materials.hair, curlCount);
+    curls.name = 'avatar-hair-curls';
+    curls.castShadow = true;
+    curls.frustumCulled = false;
+    const dummy = new THREE.Object3D();
+    const centerY = hh * 0.53;
+    let placed = 0;
+    let guard = 0;
+    while (placed < curlCount && guard < curlCount * 12) {
+      guard += 1;
+      const theta = rng() * 1.35;
+      const phi = rng() * Math.PI * 2;
+      const nx = Math.sin(theta) * Math.cos(phi);
+      const ny = Math.cos(theta);
+      const nz = Math.sin(theta) * Math.sin(phi);
+      const px = nx * hw * 0.55;
+      const py = centerY + ny * hh * 0.47;
+      const pz = nz * hd * 0.56 + hd * 0.02;
+      if (pz < -hd * 0.12 && py < centerY + hh * 0.22) continue;
+      const s = CHARACTER.hair.curlRadius * (0.75 + rng() * 0.9);
+      dummy.position.set(px, py, pz);
+      dummy.rotation.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI);
+      dummy.scale.set(s, s * (0.7 + rng() * 0.5), s);
+      dummy.updateMatrix();
+      curls.setMatrixAt(placed, dummy.matrix);
+      const tone = rng() < 0.35 ? C.hairLight : C.hair;
+      curls.setColorAt(placed, new THREE.Color(tone));
+      placed += 1;
+    }
+    curls.count = placed;
+    curls.instanceMatrix.needsUpdate = true;
+    if (curls.instanceColor) curls.instanceColor.needsUpdate = true;
+    hairRoot.add(curls);
+  }
+
+  const glasses = new THREE.Group();
+  glasses.name = 'avatar-glasses';
+  const rimRadius = hw * 0.17;
+  const rimZ = front * 0.98;
+  const metalPieces: THREE.BufferGeometry[] = [];
+  const lensPieces: THREE.BufferGeometry[] = [];
+  for (const side of [-1, 1]) {
+    metalPieces.push(part(new THREE.TorusGeometry(rimRadius, 0.0032, 6, 20), C.metal, [side * eyeX, eyeY, rimZ]));
+    metalPieces.push(part(new THREE.BoxGeometry(hw * 0.02, 0.004, 0.004), C.metal, [side * hw * 0.44, eyeY + 0.002, -hd * 0.15]));
+    lensPieces.push(part(new THREE.CircleGeometry(rimRadius * 0.92, 20), C.lens, [side * eyeX, eyeY, rimZ - 0.001], [0, Math.PI, 0]));
+  }
+  metalPieces.push(part(new THREE.BoxGeometry(eyeX * 2 - rimRadius * 2, 0.005, 0.005), C.metal, [0, eyeY + 0.002, rimZ]));
+  glasses.add(mergeMesh(metalPieces, materials.metal, 'avatar-glasses-frames'));
+  glasses.add(mergeMesh(lensPieces, materials.lens, 'avatar-glasses-lenses'));
+  head.add(glasses);
+
+  const mouth = new THREE.Mesh(prep(new THREE.SphereGeometry(0.032, 16, 10), C.lip), materials.skin);
+  mouth.name = 'avatar-expressive-mouth';
+  mouth.scale.set(1, V2_ANCHORS.mouthClosedScaleY, 0.55);
+  mouth.position.set(0, hh * 0.22, front * 0.94);
+  mouth.castShadow = false;
   head.add(mouth);
 
-  return { head, mouth };
+  const eyes: THREE.Object3D[] = [];
+  const eyeRadius = hw * 0.125;
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Group();
+    eye.name = `avatar-eye-${side}`;
+    eye.position.set(side * eyeX, eyeY, -hd * 0.45);
+    eye.scale.set(1, 1.4, 1);
+    eye.add(mergeMesh([
+      part(new THREE.SphereGeometry(eyeRadius, 12, 10), C.sclera, [0, 0, 0], [0, 0, 0], [1, 0.72, 0.55]),
+      part(new THREE.SphereGeometry(eyeRadius * 0.52, 10, 8), C.iris, [0, 0, -eyeRadius * 0.5], [0, 0, 0], [1, 1, 0.5]),
+      part(new THREE.SphereGeometry(eyeRadius * 0.24, 8, 6), C.pupil, [0, 0, -eyeRadius * 0.62]),
+      part(new THREE.SphereGeometry(eyeRadius * 0.1, 6, 6), '#ffffff', [-eyeRadius * 0.15, eyeRadius * 0.14, -eyeRadius * 0.64]),
+    ], materials.skin, `avatar-eye-mesh-${side}`));
+    eyes.push(eye);
+    head.add(eye);
+  }
+
+  return { head, mouth, eyes, hairRoot, glasses };
 }
 
 export function createPlayerAvatarV2(options: CharacterV2Options = {}): PlayerAvatar {
@@ -383,7 +498,7 @@ export function createPlayerAvatarV2(options: CharacterV2Options = {}): PlayerAv
   ], materials.skin, 'avatar-neck');
   spine.add(neck);
 
-  const { head, mouth } = buildHead(materials);
+  const { head, mouth, eyes } = buildHead(materials, lowQuality);
   spine.add(head);
 
   const { legs, knees } = buildLegs(materials);
@@ -391,26 +506,6 @@ export function createPlayerAvatarV2(options: CharacterV2Options = {}): PlayerAv
 
   const { arms, elbows } = buildArms(materials, torsoParts.shoulderHalf);
   for (const arm of arms) root.add(arm);
-
-  const eyes: THREE.Object3D[] = [];
-  for (const side of [-1, 1]) {
-    const eye = new THREE.Group();
-    eye.name = `avatar-eye-${side}`;
-    eye.position.set(side * V2_ANCHORS.eyeBaseX, V2_ANCHORS.eyeBaseY, -CHAR_DIM.headDepth * 0.42);
-    eye.scale.set(1, 1.4, 1);
-    const sclera = new THREE.Mesh(new THREE.SphereGeometry(CHAR_DIM.headWidth * 0.13, 10, 8), materials.skin);
-    const eyeColors = new Float32Array(sclera.geometry.attributes.position.count * 3);
-    const scleraColor = new THREE.Color(C.sclera);
-    for (let i = 0; i < eyeColors.length; i += 3) {
-      eyeColors[i] = scleraColor.r; eyeColors[i + 1] = scleraColor.g; eyeColors[i + 2] = scleraColor.b;
-    }
-    sclera.geometry.setAttribute('color', new THREE.BufferAttribute(eyeColors, 3));
-    sclera.scale.set(1, 0.62, 0.45);
-    track(sclera.geometry);
-    eye.add(sclera);
-    eyes.push(eye);
-    head.add(eye);
-  }
 
   torsoParts.torso.scale.y = 1;
 
@@ -427,7 +522,11 @@ export function createPlayerAvatarV2(options: CharacterV2Options = {}): PlayerAv
     mouth,
     anchors: V2_ANCHORS,
     dispose: () => {
-      geometries.forEach((geometry) => geometry.dispose());
+      const disposable = new Set<THREE.BufferGeometry>(geometries);
+      root.traverse((object) => {
+        if (object instanceof THREE.Mesh) disposable.add(object.geometry);
+      });
+      disposable.forEach((geometry) => geometry.dispose());
       textures.forEach((texture) => texture.dispose());
       materials.list.forEach((material) => material.dispose());
     },

@@ -7,3 +7,7 @@ coverage/
 .env*
 !.env.example
 .data/
+
+ui-reports/
+parity-reports/
+char-reports/
