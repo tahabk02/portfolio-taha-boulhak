@@ -4,6 +4,8 @@
  * its own units, so nothing here is expressed in metres.
  */
 export const FEATURE_FLAGS = {
+  /** Rebuild of the player character. Set to false (or VITE_ENABLE_CHARACTER_V2=false) to roll back. */
+  ENABLE_CHARACTER_V2: import.meta.env?.VITE_ENABLE_CHARACTER_V2 !== 'false',
   /** Allow the lightweight 2D fallback (auto-detected or user-toggled). */
   ENABLE_FAST_MODE: true,
   /** Auto-select fast mode on low-end devices / lost WebGL / sustained low FPS. */

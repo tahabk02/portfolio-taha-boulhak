@@ -29,12 +29,13 @@ import {
   type Point2D,
 } from '../lib/poseMath';
 import { buildStudioShowcase } from './laptopModel';
+import { LEGACY_ANCHORS, createPlayerAvatarV2, type PlayerAvatar } from './characterV2';
 import { paintCaseScreen, paintPortfolioScreen, type PortfolioScreenView, type ScreenCourse, type ScreenGithubProfile, type ScreenRepository } from './screenPainter';
 
 const GAME_KEYS = new Set(['w', 'a', 's', 'd', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
 type RoomAction = 'desk' | 'gaming' | 'sofa' | 'podcast' | 'gym' | 'lamp' | 'bed' | 'tv' | 'door' | null;
 
-function createPlayerAvatar() {
+function createPlayerAvatar(): PlayerAvatar {
   const root = new THREE.Group();
   const geometries: THREE.BufferGeometry[] = [];
   const materials: THREE.Material[] = [];
@@ -277,6 +278,7 @@ function createPlayerAvatar() {
     spine,
     eyes,
     mouth,
+    anchors: LEGACY_ANCHORS,
     dispose: () => {
       geometries.forEach((geometry) => geometry.dispose());
       materials.forEach((material) => material.dispose());
@@ -733,7 +735,9 @@ export function StudioScene({
     const bedsideLampLight = assembly.root.getObjectByName('bedside-lamp-light') as THREE.PointLight | undefined;
     const bedsideLampBulb = assembly.root.getObjectByName('bedside-lamp-bulb') as THREE.Mesh | undefined;
 
-    const player = createPlayerAvatar();
+    const player = FEATURE_FLAGS.ENABLE_CHARACTER_V2
+      ? createPlayerAvatarV2({ lowQuality: isSoftwareGl })
+      : createPlayerAvatar();
     const avatarContactShadow = player.root.getObjectByName('avatar-contact-shadow') as THREE.Mesh | undefined;
     const floorY = WORLD_SCALE.floorY;
     player.root.position.set(0, floorY, 6.5);
@@ -961,8 +965,8 @@ export function StudioScene({
       if (isSitting) {
         isSitting = false;
         setSitting(false);
-        player.spine.position.y = 0.72;
-        for (const arm of player.arms) { arm.position.y = 1.22; arm.rotation.x = 0; arm.rotation.z = 0; }
+        player.spine.position.y = player.anchors.standSpineY;
+        for (const arm of player.arms) { arm.position.y = player.anchors.standArmY; arm.rotation.x = 0; arm.rotation.z = 0; }
         for (const leg of player.legs) leg.rotation.x = 0;
         for (const elbow of player.elbows) elbow.rotation.x = 0;
         for (const knee of player.knees) knee.rotation.x = 0;
@@ -1069,8 +1073,8 @@ export function StudioScene({
       isSitting = false;
       sittingOn = 'desk';
       setSitting(false);
-      player.spine.position.y = 0.72;
-      for (const arm of player.arms) arm.position.y = 1.22;
+      player.spine.position.y = player.anchors.standSpineY;
+      for (const arm of player.arms) arm.position.y = player.anchors.standArmY;
       for (const leg of player.legs) leg.rotation.x = 0;
       for (const elbow of player.elbows) elbow.rotation.x = 0;
       for (const knee of player.knees) knee.rotation.x = 0;
@@ -1182,40 +1186,40 @@ export function StudioScene({
             sittingPosition.set(6.33, floorY + 0.14, 3.5);
             player.root.position.copy(sittingPosition);
             player.root.rotation.y = -Math.PI / 2;
-            player.spine.position.y = 0.55;
-            for (const arm of player.arms) arm.position.y = 1.05;
+            player.spine.position.y = player.anchors.seat.sofa.spineY;
+            for (const arm of player.arms) arm.position.y = player.anchors.seat.sofa.armY;
             for (const elbow of player.elbows) elbow.rotation.x = 0.18;
             setGameToast('Tu es assis sur le canapÃ©. Appuie sur E pour te relever.');
           } else if (sittingOn === 'podcast') {
             sittingPosition.set(podcastSeatX, floorY + 0.12, 0.34);
             player.root.position.copy(sittingPosition);
             player.root.rotation.y = podcastSeatX < -8.05 ? Math.PI + 0.38 : Math.PI - 0.38;
-            player.spine.position.y = 0.55;
-            for (const arm of player.arms) arm.position.y = 1.05;
+            player.spine.position.y = player.anchors.seat.podcast.spineY;
+            for (const arm of player.arms) arm.position.y = player.anchors.seat.podcast.armY;
             for (const elbow of player.elbows) elbow.rotation.x = 0.22;
             setGameToast('Tu es assis au coin podcast. Appuie sur E pour te relever.');
           } else if (sittingOn === 'gaming') {
             sittingPosition.set(6.15, floorY, 0.82);
             player.root.position.copy(sittingPosition);
             player.root.rotation.y = 0;
-            player.spine.position.y = 0.4;
-            for (const arm of player.arms) { arm.position.y = 1.08; arm.rotation.x = 0.52; }
+            player.spine.position.y = player.anchors.seat.gaming.spineY;
+            for (const arm of player.arms) { arm.position.y = player.anchors.seat.gaming.armY; arm.rotation.x = 0.52; }
             for (const elbow of player.elbows) elbow.rotation.x = 0.42;
             setGameToast('Setup gaming activÃ©. Tu peux coder et utiliser les trois Ã©crans.');
           } else {
             sittingPosition.set(0, floorY, -0.87);
             player.root.position.copy(sittingPosition);
             player.root.rotation.y = 0;
-            player.spine.position.y = 0.38;
-            for (const arm of player.arms) { arm.position.y = 1.08; arm.rotation.x = 0.52; }
+            player.spine.position.y = player.anchors.seat.desk.spineY;
+            for (const arm of player.arms) { arm.position.y = player.anchors.seat.desk.armY; arm.rotation.x = 0.52; }
             for (const elbow of player.elbows) elbow.rotation.x = 0.42;
             setGameToast('Tu es assis au bureau. Appuie sur E pour te relever.');
           }
           for (const leg of player.legs) leg.rotation.x = 0.92;
           for (const knee of player.knees) knee.rotation.x = 0.72;
         } else {
-          player.spine.position.y = 0.72;
-          for (const arm of player.arms) arm.position.y = 1.22;
+          player.spine.position.y = player.anchors.standSpineY;
+          for (const arm of player.arms) arm.position.y = player.anchors.standArmY;
           for (const leg of player.legs) leg.rotation.x = 0;
           for (const knee of player.knees) knee.rotation.x = 0;
           for (const elbow of player.elbows) elbow.rotation.x = 0;
@@ -1677,8 +1681,8 @@ export function StudioScene({
         const eyeOpen = isResting ? 0.12 : blinkProgress >= 0 && blinkProgress <= 1 ? 1 - 0.94 * Math.sin(blinkProgress * Math.PI) : 1;
         for (const [index, eye] of player.eyes.entries()) {
           eye.scale.y = 1.4 * eyeOpen;
-          eye.position.x = (index === 0 ? -0.072 : 0.072) + headYaw * 0.018;
-          eye.position.y = 0.16 - headPitch * 0.012;
+          eye.position.x = (index === 0 ? -player.anchors.eyeBaseX : player.anchors.eyeBaseX) + headYaw * 0.018;
+          eye.position.y = player.anchors.eyeBaseY - headPitch * 0.012;
         }
         if (avatarContactShadow) {
           avatarContactShadow.visible = !isResting && !isSitting;
@@ -1702,7 +1706,7 @@ export function StudioScene({
         const coding = deskModeRef.current === 'code' || deskModeRef.current === 'write';
         const typing = coding ? Math.sin(now * 0.024) * 0.13 : Math.sin(now * 0.006) * 0.08;
         for (const [index, arm] of player.arms.entries()) {
-          arm.position.y = 1.08;
+          arm.position.y = player.anchors.seat[sittingOn === 'gaming' ? 'gaming' : 'desk'].armY;
           arm.rotation.x = 0.48 + typing * (index === 0 ? 1 : -1);
           arm.rotation.z = (index === 0 ? -1 : 1) * (0.13 + (coding ? 0 : Math.sin(now * 0.004) * 0.09));
           player.elbows[index].rotation.x = 0.35 + Math.abs(typing) * 0.7;
@@ -1710,8 +1714,9 @@ export function StudioScene({
         }
       if (deskSpeechUntil > now) {
         player.head.rotation.x += Math.sin(now * 0.018) * 0.035;
-        player.mouth.scale.y = 0.22 + Math.abs(Math.sin(now * 0.026)) * 0.65;
-      } else player.mouth.scale.y = 0.22;
+        player.mouth.scale.y = player.anchors.mouthClosedScaleY + Math.abs(Math.sin(now * 0.026)) * 0.65;
+      } else player.mouth.scale.y = player.anchors.mouthClosedScaleY;
+        player.updateSecondary?.(now, dt, movementVelocity.length());
         needsMoreFrames = true;
       }
 
@@ -2312,7 +2317,7 @@ export function StudioScene({
           onClick={() => apiRef.current?.setWalking(!walking)}
           aria-pressed={walking}
         >
-          <span aria-hidden="true">{walking ? 'â†©' : 'â–¶'}</span>
+          <span aria-hidden="true">{walking ? '\u21A9' : '\u25B6'}</span>
           {walking ? copy.leaveRoom : copy.exploreRoom}
         </button>
         {walking && !roomProjectsView && !usingPC && <>

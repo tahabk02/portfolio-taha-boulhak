@@ -2401,7 +2401,8 @@ body.room-walking .fast-mode-toggle {
 .hud-topbar .tag { position:relative; inset:auto; height:auto; min-height:var(--tap-min); padding:0 clamp(.75rem,1.3vw,1.25rem); border:1px solid #ffffffb8; border-radius:var(--radius-md); font-size:clamp(.75rem,.85vw,.875rem); box-shadow:none; }
 .hud-topbar .t1,.hud-topbar .t2,.hud-topbar .t3,.hud-topbar .t4,.hud-topbar .about-tag { left:auto; right:auto; }
 .hud-topbar .logo { position:relative; inset:auto; transform:none; opacity:1; pointer-events:auto; justify-self:center; min-height:var(--tap-min); padding-inline:var(--space-3); color:#fff; background:transparent; border:0; box-shadow:none; font-size:clamp(1rem,1.3vw,1.25rem); }
-.hud-right-rail { grid-area:rail; align-self:start; justify-self:end; display:flex; flex-direction:column; align-items:stretch; gap:var(--ui-gap); min-width:clamp(8rem,14vw,12rem); min-height:calc(3 * var(--tap-min) + 2 * var(--ui-gap)); pointer-events:auto; }
+.hud-right-rail { grid-area:rail; align-self:start; justify-self:end; display:flex; flex-direction:column; align-items:stretch; gap:var(--ui-gap); min-width:clamp(8rem,14vw,12rem); min-height:calc(3 * var(--tap-min) + 2 * var(--ui-gap)); pointer-events:none; }
+.hud-right-rail > * { pointer-events:auto; }
 .hud-right-rail .language-toggle,.hud-right-rail .fast-mode-toggle { position:relative; inset:auto; width:100%; min-width:var(--tap-min); min-height:var(--tap-min); padding-inline:var(--space-3); border-radius:var(--radius-md); font-size:.875rem; }
 .hud-right-rail .language-toggle { background:#fff; color:var(--ink); }
 .hud-right-rail .fast-mode-toggle { z-index:auto; backdrop-filter:none; }
